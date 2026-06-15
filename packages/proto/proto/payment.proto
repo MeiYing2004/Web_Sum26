@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package bus.payment.v1;
+
+option java_multiple_files = true;
+
+service PaymentService {
+  rpc ProcessPayment(ProcessPaymentRequest) returns (ProcessPaymentResponse);
+  rpc GetPaymentStatus(GetPaymentStatusRequest) returns (GetPaymentStatusResponse);
+}
+
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PENDING = 1;
+  SUCCESS = 2;
+  FAILED = 3;
+}
+
+message ProcessPaymentRequest {
+  string booking_id = 1;
+  string booking_code = 2;
+  double amount = 3;
+  bool simulate_success = 4;
+  string idempotency_key = 5;
+}
+
+message ProcessPaymentResponse {
+  bool success = 1;
+  PaymentStatus status = 2;
+  string payment_id = 3;
+  string message = 4;
+}
+
+message GetPaymentStatusRequest {
+  string booking_id = 1;
+}
+
+message GetPaymentStatusResponse {
+  PaymentStatus status = 1;
+  string payment_id = 2;
+}

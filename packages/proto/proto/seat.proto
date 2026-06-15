@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package bus.seat.v1;
+
+option java_multiple_files = true;
+
+service SeatInventoryService {
+  rpc GetSeatMap(GetSeatMapRequest) returns (GetSeatMapResponse);
+  rpc HoldSeats(HoldSeatsRequest) returns (HoldSeatsResponse);
+  rpc ReleaseSeats(ReleaseSeatsRequest) returns (ReleaseSeatsResponse);
+  rpc ConfirmSeats(ConfirmSeatsRequest) returns (ConfirmSeatsResponse);
+  rpc BlockSeats(BlockSeatsRequest) returns (BlockSeatsResponse);
+}
+
+enum SeatStatus {
+  SEAT_STATUS_UNSPECIFIED = 0;
+  AVAILABLE = 1;
+  HELD = 2;
+  BOOKED = 3;
+  BLOCKED = 4;
+}
+
+message SeatInfo {
+  string seat_id = 1;
+  string seat_label = 2;
+  SeatStatus status = 3;
+  optional string held_by = 4;
+  optional int32 hold_ttl_seconds = 5;
+}
+
+message GetSeatMapRequest {
+  string trip_id = 1;
+}
+
+message GetSeatMapResponse {
+  string trip_id = 1;
+  string bus_layout = 2;
+  repeated SeatInfo seats = 3;
+  string layout_json = 4;
+}
+
+message HoldSeatsRequest {
+  string trip_id = 1;
+  repeated string seat_ids = 2;
+  string session_id = 3;
+  int32 ttl_seconds = 4;
+}
+
+message HoldSeatsResponse {
+  bool success = 1;
+  string hold_token = 2;
+  int32 expires_in_seconds = 3;
+  string message = 4;
+  repeated string failed_seats = 5;
+}
+
+message ReleaseSeatsRequest {
+  string trip_id = 1;
+  repeated string seat_ids = 2;
+  string hold_token = 3;
+}
+
+message ReleaseSeatsResponse {
+  bool success = 1;
+}
+
+message ConfirmSeatsRequest {
+  string trip_id = 1;
+  repeated string seat_ids = 2;
+  string hold_token = 3;
+  string booking_id = 4;
+}
+
+message ConfirmSeatsResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message BlockSeatsRequest {
+  string trip_id = 1;
+  repeated string seat_ids = 2;
+  bool blocked = 3;
+}
+
+message BlockSeatsResponse {
+  bool success = 1;
+}

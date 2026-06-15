@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package bus.trip.v1;
+
+option java_multiple_files = true;
+
+service TripService {
+  rpc SearchTrips(SearchTripsRequest) returns (SearchTripsResponse);
+  rpc GetTripDetail(GetTripDetailRequest) returns (TripDetail);
+  rpc AutocompleteLocations(AutocompleteRequest) returns (AutocompleteResponse);
+  rpc SuggestNearestDate(SuggestNearestDateRequest) returns (SuggestNearestDateResponse);
+}
+
+message SearchTripsRequest {
+  string origin = 1;
+  string destination = 2;
+  string travel_date = 3;
+  optional string operator_filter = 4;
+  optional string bus_type_filter = 5;
+  optional double min_price = 6;
+  optional double max_price = 7;
+  optional string departure_time_from = 8;
+  optional string departure_time_to = 9;
+  optional int32 min_seats = 10;
+  string sort_by = 11;
+}
+
+message TripSummary {
+  string id = 1;
+  string route_name = 2;
+  string origin = 3;
+  string destination = 4;
+  string operator_name = 5;
+  string bus_type = 6;
+  string departure_time = 7;
+  string arrival_time = 8;
+  double price = 9;
+  int32 available_seats = 10;
+  int32 duration_minutes = 11;
+}
+
+message SearchTripsResponse {
+  repeated TripSummary trips = 1;
+}
+
+message GetTripDetailRequest {
+  string trip_id = 1;
+}
+
+message TripDetail {
+  string id = 1;
+  string route_name = 2;
+  string origin = 3;
+  string destination = 4;
+  string pickup_point = 5;
+  string dropoff_point = 6;
+  string operator_name = 7;
+  string bus_type = 8;
+  string departure_time = 9;
+  string arrival_time = 10;
+  double price = 11;
+  string cancellation_policy = 12;
+  string bus_id = 13;
+  string bus_plate = 14;
+  int32 total_seats = 15;
+  string seat_layout_json = 16;
+}
+
+message AutocompleteRequest {
+  string query = 1;
+}
+
+message LocationSuggestion {
+  string id = 1;
+  string name = 2;
+  string type = 3;
+}
+
+message AutocompleteResponse {
+  repeated LocationSuggestion suggestions = 1;
+}
+
+message SuggestNearestDateRequest {
+  string origin = 1;
+  string destination = 2;
+  string travel_date = 3;
+}
+
+message SuggestNearestDateResponse {
+  optional string nearest_date = 1;
+}

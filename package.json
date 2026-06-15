@@ -1,0 +1,31 @@
+{
+  "name": "bus-booking-platform",
+  "private": true,
+  "author": "Lữ Minh Hoàng",
+  "copyright": "Copyright (c) 2026 Lữ Minh Hoàng. All rights reserved.",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev:infra": "docker compose up -d postgres redis kafka rabbitmq",
+    "dev:gateway": "node scripts/start-dev-service.cjs gateway",
+    "dev:ai": "node scripts/start-dev-service.cjs ai",
+    "dev:web": "npm run dev -w @bus/web",
+    "proto:gen": "npm run proto:gen -w @bus/proto",
+    "db:migrate": "npm run db:migrate --workspaces --if-present",
+    "db:seed": "npm run db:seed --workspaces --if-present",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "clean:deps": "node scripts/clean-deps.cjs",
+    "setup": "node scripts/bootstrap.cjs",
+    "test:production": "npx tsx scripts/run-production-tests.ts",
+    "deploy": "powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1",
+    "deploy:sh": "bash scripts/deploy.sh"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

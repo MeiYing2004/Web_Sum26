@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package bus.booking.v1;
+
+option java_multiple_files = true;
+
+service BookingService {
+  rpc CreateBooking(CreateBookingRequest) returns (CreateBookingResponse);
+  rpc GetBooking(GetBookingRequest) returns (BookingDetail);
+  rpc GetBookingByCode(GetBookingByCodeRequest) returns (BookingDetail);
+  rpc CancelBooking(CancelBookingRequest) returns (CancelBookingResponse);
+  rpc CheckIn(CheckInRequest) returns (CheckInResponse);
+  rpc ListUserBookings(ListUserBookingsRequest) returns (ListUserBookingsResponse);
+  rpc ExpirePendingBookings(ExpirePendingRequest) returns (ExpirePendingResponse);
+  rpc ProcessPayment(ProcessPaymentRequest) returns (ProcessPaymentResponse);
+  rpc MarkTicketIssued(MarkTicketIssuedRequest) returns (MarkTicketIssuedResponse);
+}
+
+message MarkTicketIssuedRequest {
+  string booking_id = 1;
+}
+
+message MarkTicketIssuedResponse {
+  bool success = 1;
+}
+
+message ProcessPaymentRequest {
+  string booking_id = 1;
+  bool simulate_success = 2;
+}
+
+message ProcessPaymentResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+enum BookingStatus {
+  BOOKING_STATUS_UNSPECIFIED = 0;
+  DRAFT = 1;
+  PENDING_PAYMENT = 2;
+  PAID = 3;
+  TICKET_ISSUED = 4;
+  CHECKED_IN = 5;
+  COMPLETED = 6;
+  EXPIRED = 7;
+  CANCELLED = 8;
+}
+
+message PassengerInput {
+  string full_name = 1;
+  string phone = 2;
+  string email = 3;
+  optional string id_number = 4;
+  string seat_id = 5;
+}
+
+message CreateBookingRequest {
+  string trip_id = 1;
+  string hold_token = 2;
+  repeated PassengerInput passengers = 3;
+  optional string user_id = 4;
+  string guest_email = 5;
+}
+
+message CreateBookingResponse {
+  string booking_id = 1;
+  string booking_code = 2;
+  BookingStatus status = 3;
+  double total_amount = 4;
+  int32 payment_deadline_seconds = 5;
+}
+
+message GetBookingRequest {
+  string booking_id = 1;
+}
+
+message GetBookingByCodeRequest {
+  string booking_code = 1;
+  string email = 2;
+}
+
+message BookingDetail {
+  string id = 1;
+  string booking_code = 2;
+  BookingStatus status = 3;
+  string trip_id = 4;
+  string route_name = 5;
+  string origin = 6;
+  string destination = 7;
+  string departure_time = 8;
+  double total_amount = 9;
+  repeated PassengerInput passengers = 10;
+  optional string user_id = 11;
+  string created_at = 12;
+}
+
+message CancelBookingRequest {
+  string booking_id = 1;
+  optional string user_id = 2;
+}
+
+message CancelBookingResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message CheckInRequest {
+  string booking_code = 1;
+  optional string ticket_id = 2;
+  string staff_id = 3;
+}
+
+message CheckInResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListUserBookingsRequest {
+  string user_id = 1;
+}
+
+message ListUserBookingsResponse {
+  repeated BookingDetail bookings = 1;
+}
+
+message ExpirePendingRequest {}
+
+message ExpirePendingResponse {
+  int32 expired_count = 1;
+}

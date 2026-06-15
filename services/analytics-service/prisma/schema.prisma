@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SearchEvent {
+  id          String   @id @default(cuid())
+  keyword     String?
+  origin      String
+  destination String
+  travelDate  String
+  resultCount Int
+  userId      String?
+  createdAt   DateTime @default(now())
+}
+
+model BookingEvent {
+  id          String   @id @default(cuid())
+  eventType   String
+  bookingId   String?
+  tripId      String?
+  amount      Float?
+  createdAt   DateTime @default(now())
+}
+
+model PaymentEvent {
+  id        String   @id @default(cuid())
+  eventType String
+  bookingId String?
+  amount    Float?
+  createdAt DateTime @default(now())
+}
+
+model DailyRevenue {
+  id           String   @id @default(cuid())
+  date         String   @unique
+  revenue      Float    @default(0)
+  bookingCount Int      @default(0)
+}
+
+model RouteSearchStat {
+  id          String @id @default(cuid())
+  origin      String
+  destination String
+  searchCount Int    @default(0)
+
+  @@unique([origin, destination])
+}
+
+model RouteTicketStat {
+  id         String @id @default(cuid())
+  routeName  String
+  ticketsSold Int   @default(0)
+  revenue    Float  @default(0)
+}

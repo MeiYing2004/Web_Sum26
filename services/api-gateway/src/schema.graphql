@@ -1,0 +1,204 @@
+enum SeatStatus {
+  AVAILABLE
+  HELD
+  BOOKED
+  BLOCKED
+}
+
+enum BookingStatus {
+  DRAFT
+  PENDING_PAYMENT
+  PAID
+  TICKET_ISSUED
+  CHECKED_IN
+  COMPLETED
+  EXPIRED
+  CANCELLED
+}
+
+type LocationSuggestion {
+  id: ID!
+  name: String!
+  type: String!
+}
+
+type TripSummary {
+  id: ID!
+  routeName: String!
+  origin: String!
+  destination: String!
+  operatorName: String!
+  busType: String!
+  departureTime: String!
+  arrivalTime: String!
+  price: Float!
+  availableSeats: Int!
+  durationMinutes: Int!
+}
+
+type TripDetail {
+  id: ID!
+  routeName: String!
+  origin: String!
+  destination: String!
+  pickupPoint: String!
+  dropoffPoint: String!
+  operatorName: String!
+  busType: String!
+  departureTime: String!
+  arrivalTime: String!
+  price: Float!
+  cancellationPolicy: String!
+  busId: ID!
+  busPlate: String!
+  totalSeats: Int!
+  seatLayoutJson: String
+}
+
+type SeatInfo {
+  seatId: ID!
+  seatLabel: String!
+  status: SeatStatus!
+  heldBy: String
+  holdTtlSeconds: Int
+}
+
+type SeatMap {
+  tripId: ID!
+  busLayout: String!
+  layoutJson: String!
+  seats: [SeatInfo!]!
+}
+
+type HoldSeatsResult {
+  success: Boolean!
+  holdToken: String
+  expiresInSeconds: Int
+  message: String!
+  failedSeats: [String!]!
+}
+
+type Passenger {
+  fullName: String!
+  phone: String!
+  email: String!
+  idNumber: String
+  seatId: ID!
+}
+
+input PassengerInput {
+  fullName: String!
+  phone: String!
+  email: String!
+  idNumber: String
+  seatId: ID!
+}
+
+type BookingResult {
+  bookingId: ID!
+  bookingCode: String!
+  status: BookingStatus!
+  totalAmount: Float!
+  paymentDeadlineSeconds: Int!
+}
+
+type BookingDetail {
+  id: ID!
+  bookingCode: String!
+  status: BookingStatus!
+  tripId: ID!
+  totalAmount: Float!
+  passengers: [Passenger!]!
+  createdAt: String!
+}
+
+type PaymentResult {
+  success: Boolean!
+  message: String!
+}
+
+type AuthResult {
+  token: String!
+  userId: ID!
+  role: String!
+}
+
+type DailyRevenue {
+  date: String!
+  revenue: Float!
+  bookingCount: Int!
+}
+
+type RevenueSummary {
+  daily: [DailyRevenue!]!
+  totalRevenue: Float!
+}
+
+type RouteStat {
+  origin: String!
+  destination: String!
+  searchCount: Int!
+}
+
+type ConversionRate {
+  totalSearches: Int!
+  totalBookings: Int!
+  conversionRate: Float!
+}
+
+type SeatUpdate {
+  tripId: ID!
+  seatId: ID!
+  status: SeatStatus!
+  heldBy: String
+  holdTtlSeconds: Int
+}
+
+type Query {
+  health: String!
+  autocompleteLocations(query: String!): [LocationSuggestion!]!
+  searchTrips(
+    origin: String!
+    destination: String!
+    travelDate: String!
+    operatorFilter: String
+    busTypeFilter: String
+    minPrice: Float
+    maxPrice: Float
+    departureTimeFrom: String
+    departureTimeTo: String
+    minSeats: Int
+    sortBy: String
+  ): [TripSummary!]!
+  tripDetail(tripId: ID!): TripDetail
+  seatMap(tripId: ID!): SeatMap!
+  booking(id: ID!): BookingDetail
+  bookingByCode(bookingCode: String!, email: String!): BookingDetail
+  myBookings: [BookingDetail!]!
+  suggestNearestDate(origin: String!, destination: String!, travelDate: String!): String
+  revenueSummary(fromDate: String, toDate: String): RevenueSummary!
+  popularRoutes(limit: Int): [RouteStat!]!
+  conversionRate: ConversionRate!
+}
+
+type Mutation {
+  register(email: String!, password: String!, fullName: String!): AuthResult!
+  login(email: String!, password: String!, fullName: String): AuthResult!
+  holdSeats(tripId: ID!, seatIds: [ID!]!, sessionId: String!): HoldSeatsResult!
+  releaseSeats(tripId: ID!, seatIds: [ID!]!, holdToken: String!): Boolean!
+  createBooking(
+    tripId: ID!
+    holdToken: String!
+    passengers: [PassengerInput!]!
+    guestEmail: String!
+  ): BookingResult!
+  processPayment(bookingId: ID!, simulateSuccess: Boolean!): PaymentResult!
+  cancelBooking(bookingId: ID!): PaymentResult!
+  checkIn(bookingCode: String!, ticketId: String): PaymentResult!
+  blockSeats(tripId: ID!, seatIds: [ID!]!, blocked: Boolean!): Boolean!
+  updateBusSeatLayout(busLayoutType: String!, layoutJson: String!): Boolean!
+}
+
+type Subscription {
+  seatUpdated(tripId: ID!): SeatUpdate!
+}
