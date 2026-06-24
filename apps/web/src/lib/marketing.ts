@@ -73,7 +73,7 @@ export const TESTIMONIALS = [
     name: 'Lan Phương',
     route: 'TP.HCM → Nha Trang',
     rating: 4,
-    text: 'Hỗ trợ tra cứu vé bằng mã rất nhanh. Capy AI gợi ý chuyến phù hợp buổi tối.',
+    text: 'Hỗ trợ tra cứu vé bằng mã rất nhanh. Luhoang gợi ý chuyến phù hợp buổi tối.',
     avatar: 'LP',
   },
 ] as const;

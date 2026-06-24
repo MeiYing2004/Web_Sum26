@@ -70,10 +70,10 @@ export default function CapyAI() {
     } catch (err) {
       const hint =
         err instanceof TypeError
-          ? 'Không kết nối được Capy AI.'
+          ? 'Không kết nối được Luhoang.'
           : err instanceof Error
             ? err.message
-            : 'Capy AI tạm thời không khả dụng.';
+            : 'Luhoang tạm thời không khả dụng.';
       setChatMessages([...newMsgs, { role: 'assistant', content: hint }]);
     } finally {
       setChatLoading(false);
@@ -85,13 +85,13 @@ export default function CapyAI() {
       <motion.button
         type="button"
         onClick={() => setChatOpen(!chatOpen)}
-        aria-label="Mở Capy AI"
+        aria-label="Mở Luhoang"
         whileHover={{ scale: 1.03 }}
         whileTap={{ scale: 0.97 }}
         className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full bg-ink py-3 pl-4 pr-5 text-white shadow-overlay ring-1 ring-white/10"
       >
         <Bot className="h-5 w-5 text-accent" />
-        <span className="text-sm font-semibold">Capy AI</span>
+        <span className="text-sm font-semibold">Luhoang</span>
       </motion.button>
 
       <AnimatePresence>
@@ -105,7 +105,7 @@ export default function CapyAI() {
             <div className="flex items-center gap-3 bg-gradient-to-r from-brand-600 to-brand-700 px-4 py-3 text-white">
               <Bot className="h-5 w-5" />
               <div>
-                <p className="text-caption font-semibold">Capy AI</p>
+                <p className="text-caption font-semibold">Luhoang</p>
                 <p className="text-micro text-white/70">Trợ lý đặt vé thông minh</p>
               </div>
             </div>
@@ -146,7 +146,7 @@ export default function CapyAI() {
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && sendChat()}
-                placeholder="Hỏi Capy AI..."
+                placeholder="Hỏi Luhoang..."
                 className="flex-1"
               />
               <Button type="button" onClick={sendChat} disabled={chatLoading} size="sm">

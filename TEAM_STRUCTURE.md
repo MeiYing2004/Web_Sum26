@@ -2,8 +2,43 @@
 
 > **Dự án:** Cappy Bus (`bus-booking-platform`)  
 > **Bản quyền:** © 2026 Lữ Minh Hoàng  
-> **Ngày phân tích:** 24/06/2026  
-> **Phạm vi:** Toàn bộ 162 file nguồn trong repo (không gồm `node_modules`, `.git`, `dist`, `.next`)
+> **Ngày cập nhật:** 24/06/2026  
+> **Nhóm:** 5 thành viên (FE · BE · DE · AI · DO)  
+> **Git:** Xem chi tiết nhánh tại [GIT_BRANCH_STRATEGY.md](./GIT_BRANCH_STRATEGY.md)
+
+---
+
+## Danh sách nhóm & nhánh Git
+
+| STT | Họ tên (điền) | Vai trò | Prefix nhánh | Repo chính làm việc |
+|-----|---------------|---------|--------------|-------------------|
+| 1 | _____________ | **FE** — Frontend | `feature/fe-` | `apps/web/` |
+| 2 | _____________ | **BE** — Backend | `feature/be-` | `services/`, `packages/proto/` |
+| 3 | _____________ | **DE** — Data | `feature/de-` | `services/*/prisma/`, `packages/shared/`, `infra/` |
+| 4 | _____________ | **AI** — AI/MCP | `feature/ai-` | `services/ai-service/`, `apps/mcp-server/` |
+| 5 | _____________ | **DO** — DevOps/QA | `feature/do-` | `docker-compose.yml`, `scripts/`, `.github/` |
+
+**Luồng Git chuẩn:** `feature/<role>-xxx` → PR vào `develop` → khi ổn định merge `develop` → `main`
+
+### Bạn là ai? — Đọc phần nào trước?
+
+| Vai trò | Đọc ngay | Lộ trình 4 tuần |
+|---------|----------|-----------------|
+| **FE** | [§1 Frontend](#1-frontend-engineer-fe) + [GIT_BRANCH_STRATEGY](./GIT_BRANCH_STRATEGY.md) | Tuần 1–4 trong §1 |
+| **BE** | [§2 Backend](#2-backend-engineer-be) + `schema.graphql` | Tuần 1–4 trong §2 |
+| **DE** | [§3 Data](#3-data-engineer-de) + [MODULE_5.md](./MODULE_5.md) §2–3 | Tuần 1–4 trong §3 |
+| **AI** | [§4 AI/MCP](#4-aimcp-engineer-ai) + [MODULE_5.md](./MODULE_5.md) toàn bộ | Tuần 1–4 trong §4 |
+| **DO** | [§5 DevOps](#5-devops--qa-engineer-do) + tạo nhánh `develop` | Tuần 1–4 trong §5 |
+
+**Ngày đầu tiên (cả nhóm):**
+
+```powershell
+cd "d:\Web Sum 26"
+npm install
+docker compose up -d
+npm run dev:web          # Terminal 1 — FE
+# Đọc: GHI-CHU-KHOI-DONG.md + phần vai trò của mình bên dưới
+```
 
 ---
 
@@ -105,24 +140,31 @@ flowchart TB
 
 ---
 
-## Chức năng chưa hoàn thiện / chưa có người phụ trách rõ
+## Chức năng chưa hoàn thiện / đang làm dở
 
-| # | Chức năng | Trạng thái trong code | Vị trí phụ trách chính | Ghi chú |
-|---|-----------|----------------------|------------------------|---------|
-| 1 | Quên mật khẩu | UI only — `forgot-password/page.tsx` dòng 34: *"backend chưa có mutation reset password"* | BE + FE | Không có GraphQL mutation |
-| 2 | Đặt lại mật khẩu | UI mock — `reset-password/page.tsx` chỉ `setTimeout`, không gọi API | BE + FE | Không có token validation backend |
-| 3 | User saved passengers | `user-service` có handler `GetSavedPassengers` nhưng **không** `server.addService()`, không có `user.proto` | BE + DE | gRPC port 50052 bind nhưng không expose service |
-| 4 | Gửi email thật | `notification-service` — `[EMAIL MOCK]` console.log | BE + DO | RabbitMQ consumer hoạt động, email mock |
-| 5 | Thanh toán thật | `payment-service` — `simulate_success` flag, không gateway thật | BE | Chỉ mô phỏng |
-| 6 | Hiển thị vé điện tử | `booking/page.tsx` dòng 217: *"gửi qua email (mock)"* | FE + BE | Ticket HTML tạo ở `ticket-service` nhưng FE không hiển thị |
-| 7 | Hủy đặt vé (`cancelBooking`) | GraphQL mutation có trong `resolvers.ts`, **không** dùng ở frontend | FE | API sẵn, UI thiếu |
-| 8 | Gợi ý ngày gần nhất (`suggestNearestDate`) | GraphQL query có, **không** dùng ở frontend | FE | API sẵn, UI thiếu |
-| 9 | Nhả ghế (`releaseSeats`) | GraphQL mutation có, **không** dùng ở frontend | FE | API sẵn, UI thiếu |
-| 10 | MCP HTTP port 3100 | `docker-compose.yml` expose 3100, code dùng `StdioServerTransport` | AI + DO | Lệch cấu hình Docker vs code |
-| 11 | Prisma migrations | Chỉ `prisma db push` trong Dockerfile, **không** có thư mục `migrations/` | DE + DO | Không có versioned migration |
-| 12 | E2E / unit test framework | Không Jest/Vitest/Playwright — chỉ script `scripts/*.ts` | DO | CI chỉ chạy `test:production` |
-| 13 | `@apollo/client` | Khai báo trong `apps/web/package.json`, **không** import trong code | FE | Dependency thừa |
-| 14 | `mockRating` trên homepage | `page.tsx` — rating giả theo operator name | FE | Chưa có dữ liệu thật |
+| # | Chức năng | Trạng thái | Vị trí phụ trách | Ghi chú |
+|---|-----------|------------|------------------|---------|
+| 1 | Quên / đặt lại mật khẩu | UI ✅ — API ❌ | BE + FE | `forgot-password`, `reset-password` chưa gọi GraphQL thật |
+| 2 | User saved passengers (gRPC) | Một phần | BE + DE | Logic đã gộp `auth-service`; kiểm tra `SavedPassenger` |
+| 3 | Gửi email thật | Mock | BE + DO | `notification-service` console.log |
+| 4 | Thanh toán thật | Simulate | BE | `payment-service` — `simulate_success` |
+| 5 | `RouteTicketStat` pipeline | Schema có, chưa ghi | DE | Xem `MODULE_5.md` backlog P1 |
+| 6 | MCP HTTP port 3100 | Lệch Docker vs stdio | AI + DO | Compose expose 3100, code dùng stdio |
+| 7 | Prisma migrations versioned | Chưa có | DE + DO | Hiện `db push` trong Dockerfile |
+| 8 | E2E framework | Chưa có | DO | Chỉ `scripts/*.ts` integration |
+| 9 | Đăng nhập Google / SĐT | UI placeholder | FE + BE | Toast "sắm khả dụng" |
+| 10 | `@apollo/client` | Dependency thừa | FE | Có trong package.json, không dùng |
+
+### Đã hoàn thiện gần đây (tham khảo khi học code)
+
+| Tính năng | File chính |
+|-----------|------------|
+| Hủy vé — bảo mật (chỉ chủ tài khoản) | `CancelBookingButton.tsx`, `api-gateway/resolvers.ts`, `booking-service` |
+| UI auth tối giản (login/register/forgot) | `AuthSplitLayout.tsx`, `login/`, `register/`, `forgot-password/` |
+| Vé điện tử / Vé của tôi | `my-tickets/`, `ETicketCard.tsx` |
+| Admin CRUD | `admin/buses`, `routes`, `stops`, `trips`, `events` |
+| Voucher / ưu đãi | `PromoVoucherCard.tsx`, `marketing.ts` |
+| Tra cứu vé + gợi ý ngày | `lookup/page.tsx`, `suggestNearestDate` |
 
 ---
 
@@ -138,16 +180,18 @@ Xây dựng và duy trì giao diện người dùng Cappy Bus (tiếng Việt): 
 |-----------|-------------------|---------------|
 | Trang chủ + tìm chuyến | `/` `page.tsx` | `autocompleteLocations`, `searchTrips` |
 | Tìm chuyến theo query | `/trips` | `searchTrips` |
-| SEO tuyến đường | `/[slug]` → `ve-xe-*` | `searchTrips` qua `RouteSearchClient` |
+| SEO tuyến đường | `/[slug]` → `ve-xe-*` | `searchTrips` qua `[slug]/page.tsx` |
 | Chi tiết chuyến + chọn ghế | `/trips/[id]` | `tripDetail`, `seatMap`, `holdSeats`, WS `seatUpdated` |
 | Đặt vé + thanh toán | `/booking` | `createBooking`, `processPayment` |
-| Tra cứu vé | `/lookup` | `bookingByCode`, `tripDetail` |
-| Vé của tôi | `/my-bookings` | `myBookings` |
-| Đăng nhập / Đăng ký | `/login`, `/register` | `login`, `register` |
-| Quên / đặt lại MK | `/forgot-password`, `/reset-password` | ⚠️ UI only — chưa có backend |
-| Admin dashboard | `/admin` | `revenueSummary`, `popularRoutes`, `conversionRate`, `checkIn` |
+| Tra cứu vé | `/lookup` | `bookingByCode`, `ticketsForBooking` |
+| Vé của tôi / e-ticket | `/my-tickets`, `/my-tickets/[id]` | `myTickets`, `ticketsForBooking` |
+| Hồ sơ tài khoản | `/profile` | Auth session, `AccountDashboard` |
+| Đăng nhập / Đăng ký / Quên MK | `/login`, `/register`, `/forgot-password` | `login`, `register` — reset API chưa có |
+| Admin dashboard + CRUD | `/admin`, `/admin/buses`, `routes`, `stops`, `trips` | `adminDashboard`, admin mutations |
 | Cấu hình ghế bus | `/admin/layout` | `updateBusSeatLayout` |
-| Capy AI chat UI | `page.tsx` (panel chat) | `POST /api/chat` |
+| Capy AI chat | `CapyAI.tsx` (global) | `POST /api/chat` |
+| Auth UI chung | `AuthSplitLayout.tsx` | — |
+| Hủy vé (chủ tài khoản) | `CancelBookingButton.tsx` | `cancelBooking` + JWT |
 | Auth & routing guard | `AuthProvider`, `AuthGuard` | JWT localStorage |
 | SEO metadata | `seo.ts`, `[slug]/page.tsx` | — |
 | Hiển thị trạng thái chuyến | `TripAvailabilityBadge` | `bookable`, `availabilityStatus` |
@@ -183,7 +227,7 @@ apps/web/
 | GraphQL Mutation | `login`, `register`, `holdSeats`, `createBooking`, `processPayment`, `checkIn`, `updateBusSeatLayout` | Qua `gql()` |
 | GraphQL Subscription | `seatUpdated` | WS `NEXT_PUBLIC_WS_URL` |
 | REST | `POST /api/chat` | Rewrite → ai-service |
-| — | `cancelBooking`, `releaseSeats`, `suggestNearestDate` | ⚠️ Backend có, FE chưa implement |
+| — | `cancelBooking`, `releaseSeats`, `suggestNearestDate` | `cancelBooking` ✅ FE+BE; `suggestNearestDate` ✅ homepage/trips; `releaseSeats` ⚠️ chưa UI |
 
 ## Service phụ trách
 
@@ -218,9 +262,10 @@ Next.js 15, React 19, TypeScript, Tailwind CSS 3, Framer Motion, Lucide React, r
 6. `src/app/trips/page.tsx` → `src/app/trips/[id]/page.tsx`
 7. `src/components/SeatMapGrid.tsx`
 8. `src/app/booking/page.tsx` → `lookup/page.tsx` → `my-bookings/page.tsx`
-9. `src/app/login/page.tsx` → `register/page.tsx`
-10. `src/app/admin/page.tsx` → `admin/layout/page.tsx`
-11. `services/api-gateway/src/schema.graphql` (hợp đồng API)
+9. `src/app/login/page.tsx` → `register/page.tsx` → `forgot-password/page.tsx` (`AuthSplitLayout`)
+10. `src/app/my-tickets/page.tsx` → `ETicketCard.tsx`
+11. `src/app/admin/page.tsx` → `admin/trips/page.tsx` → `admin/buses/page.tsx`
+12. `services/api-gateway/src/schema.graphql` (hợp đồng API)
 
 ## Công việc hằng ngày
 
@@ -235,19 +280,29 @@ Next.js 15, React 19, TypeScript, Tailwind CSS 3, Framer Motion, Lucide React, r
 - Sync với BE về breaking changes GraphQL schema
 - Kiểm tra SEO slug routes (`ve-xe-*`)
 - Review performance (LCP, bundle size)
-- Triển khai UI cho API đã có nhưng chưa dùng (`cancelBooking`, `suggestNearestDate`)
+- Triển khai UI cho API đã có nhưng chưa dùng (`releaseSeats` khi rời trang chọn ghế)
 - Cập nhật mirror `datetime`/`trip-availability` khi `@bus/shared` thay đổi
 
 ## Checklist onboarding
 
+- [ ] Đọc [GIT_BRANCH_STRATEGY.md](./GIT_BRANCH_STRATEGY.md) — tạo `feature/fe-xxx` từ `develop`
 - [ ] `npm install` + `npm run dev:web` (backend Docker đang chạy)
-- [ ] Mở http://localhost:3000, tìm chuyến HCM → Đà Lạt
+- [ ] Mở http://localhost:3000, tìm chuyến HCM → Cần Thơ
 - [ ] Đăng nhập `admin@bus.demo` / `admin123`, vào `/admin`
 - [ ] Chọn ghế real-time trên `/trips/[id]`
-- [ ] Hoàn tất flow đặt vé `/booking`
+- [ ] Hoàn tất flow đặt vé `/booking`, xem vé `/my-tickets`
 - [ ] Đọc `schema.graphql` — biết mọi operation FE dùng
-- [ ] Hiểu `NEXT_PUBLIC_GRAPHQL_URL`, `NEXT_PUBLIC_WS_URL`, `API_GATEWAY_URL`
+- [ ] Hiểu `NEXT_PUBLIC_GRAPHQL_URL`, `NEXT_PUBLIC_WS_URL`
 - [ ] Đọc `GHI-CHU-KHOI-DONG.md` phần dev local frontend
+
+### Lộ trình học 4 tuần — FE
+
+| Tuần | Mục tiêu | Đọc / làm |
+|------|----------|-----------|
+| 1 | Next.js + GraphQL client | `layout.tsx`, `graphql.ts`, `login/page.tsx`, `page.tsx` (homepage) |
+| 2 | Booking flow | `trips/page.tsx` → `trips/[id]` → `SeatMapGrid` → `booking/page.tsx` |
+| 3 | Tài khoản & vé | `my-tickets/`, `ETicketCard`, `CancelBookingButton`, `AuthProvider` |
+| 4 | Admin + polish | `admin/page.tsx`, `admin/trips`, PR `feature/fe-xxx` vào `develop` |
 
 ---
 
@@ -380,6 +435,7 @@ Node.js 20+, TypeScript, Express, Apollo Server 4, graphql-ws, @grpc/grpc-js, @g
 
 ## Checklist onboarding
 
+- [ ] Đọc [GIT_BRANCH_STRATEGY.md](./GIT_BRANCH_STRATEGY.md) — nhánh `feature/be-xxx`
 - [ ] `npm run setup` + `npm run dev:infra`
 - [ ] `npm run dev:gateway` — GraphQL http://localhost:4000/graphql
 - [ ] Test query `searchTrips` qua GraphQL Playground
@@ -387,6 +443,16 @@ Node.js 20+, TypeScript, Express, Apollo Server 4, graphql-ws, @grpc/grpc-js, @g
 - [ ] Đọc 6 file `.proto`
 - [ ] Hiểu `docker-compose.yml` dependency giữa services
 - [ ] Chạy `npm run test:production` (Redis tests)
+- [ ] Query DB: `docker compose exec postgres psql -U bus_auth -d bus_auth -c "SELECT email FROM users;"`
+
+### Lộ trình học 4 tuần — BE
+
+| Tuần | Mục tiêu | Đọc / làm |
+|------|----------|-----------|
+| 1 | Gateway + Auth | `schema.graphql`, `resolvers.ts`, `auth-service/src/index.ts` |
+| 2 | Trip + Seat | `trip-service`, `seat-inventory-service`, `redis-seats.ts` |
+| 3 | Booking + Payment | `booking-service` (Create, Cancel, CheckIn), `payment-service` |
+| 4 | Ticket async + API mới | `ticket-service`, `notification-service`, task: `resetPassword` mutation |
 
 ---
 
@@ -512,6 +578,7 @@ PostgreSQL 16, Prisma 6.5, Redis 7 (ioredis), Kafka (kafkajs + Zookeeper), Rabbi
 
 ## Checklist onboarding
 
+- [ ] Đọc [GIT_BRANCH_STRATEGY.md](./GIT_BRANCH_STRATEGY.md) — nhánh `feature/de-xxx`
 - [ ] Đọc `infra/postgres/init.sql` — hiểu 7 DB
 - [ ] `docker compose up -d postgres redis kafka rabbitmq`
 - [ ] `npm run db:migrate` + `npm run db:seed`
@@ -519,6 +586,15 @@ PostgreSQL 16, Prisma 6.5, Redis 7 (ioredis), Kafka (kafkajs + Zookeeper), Rabbi
 - [ ] Trace Kafka message từ trip-service → analytics-service
 - [ ] Trace RabbitMQ `booking.paid` → ticket + notification
 - [ ] Chạy `scripts/test-double-booking.ts`
+
+### Lộ trình học 4 tuần — DE
+
+| Tuần | Mục tiêu | Đọc / làm |
+|------|----------|-----------|
+| 1 | PostgreSQL + Prisma | `init.sql`, 7× `schema.prisma`, `trip-service/prisma/seed.ts` |
+| 2 | Redis + shared data | `constants.ts`, `redis-seats.ts`, `locations.ts`, `datetime.ts` |
+| 3 | Kafka + RabbitMQ | `kafka.ts`, `rabbitmq.ts`, publish trong trip/booking |
+| 4 | Analytics | `analytics-service`, task: populate `RouteTicketStat` |
 
 ---
 
@@ -617,12 +693,22 @@ Vercel AI SDK, Google Gemini, OpenAI, MCP SDK, Zod validation, `@bus/shared` (sa
 
 ## Checklist onboarding
 
+- [ ] Đọc [GIT_BRANCH_STRATEGY.md](./GIT_BRANCH_STRATEGY.md) — nhánh `feature/ai-xxx`
 - [ ] Set `GOOGLE_GENERATIVE_AI_API_KEY` hoặc `OPENAI_API_KEY` trong `.env`
 - [ ] `npm run dev:ai` — test http://localhost:50060/health
-- [ ] Chat Capy AI trên homepage — hỏi "tìm xe HCM đi Đà Lạt ngày mai"
+- [ ] Chat Capy AI — hỏi "tìm xe HCM đi Đà Lạt ngày mai"
 - [ ] Test demo mode (không API key)
-- [ ] Chạy mcp-server local: `npm run dev -w @bus/mcp-server`
-- [ ] Đọc MCP tools list trong `apps/mcp-server/src/index.ts`
+- [ ] Chạy mcp-server: `npm run dev -w @bus/mcp-server`
+- [ ] Đọc `MODULE_5.md` toàn bộ
+
+### Lộ trình học 4 tuần — AI
+
+| Tuần | Mục tiêu | Đọc / làm |
+|------|----------|-----------|
+| 1 | ai-service cơ bản | `ai-service/src/index.ts`, tools `searchTrips` |
+| 2 | Capy AI UI | `CapyAI.tsx`, `next.config.js` rewrite `/api/chat` |
+| 3 | MCP server | `mcp-server/src/index.ts`, cấu hình Cursor MCP |
+| 4 | Nâng cao | Policy resources, parity admin tools, `MODULE_5.md` backlog |
 
 ---
 
@@ -735,6 +821,7 @@ Docker, Docker Compose, Nginx, GitHub Actions, Node.js 20, PowerShell/Bash scrip
 
 ## Checklist onboarding
 
+- [ ] Đọc [GIT_BRANCH_STRATEGY.md](./GIT_BRANCH_STRATEGY.md) — nhánh `feature/do-xxx`, tạo `develop` nếu chưa có
 - [ ] `npm run setup` → `npm run docker:up`
 - [ ] Verify http://localhost:8080, :3000, :4000/health
 - [ ] Đọc `docker-compose.yml` — biết dependency graph
@@ -742,6 +829,16 @@ Docker, Docker Compose, Nginx, GitHub Actions, Node.js 20, PowerShell/Bash scrip
 - [ ] Trigger CI workflow trên PR
 - [ ] Chạy `npm run deploy` trên Windows
 - [ ] Hiểu health ports 9101–9109
+- [ ] Duy trì `GHI-CHU-KHOI-DONG.md`, `TEAM_STRUCTURE.md`
+
+### Lộ trình học 4 tuần — DO
+
+| Tuần | Mục tiêu | Đọc / làm |
+|------|----------|-----------|
+| 1 | Docker Compose | `docker-compose.yml`, 13 Dockerfiles, `nginx.conf` |
+| 2 | Scripts dev/deploy | `dev-all.cjs`, `bootstrap.cjs`, `deploy.ps1` |
+| 3 | CI + health | `.github/workflows/ci.yml`, `health.ts`, `run-production-tests.ts` |
+| 4 | QA mở rộng | Document branch workflow, đề xuất Playwright E2E |
 
 ---
 
@@ -772,6 +869,8 @@ Docker, Docker Compose, Nginx, GitHub Actions, Node.js 20, PowerShell/Bash scrip
 | `scripts/` (dev, deploy, test) | DO | BE, DE, AI, FE |
 | `.github/workflows/ci.yml` | DO | BE, DE |
 | `GHI-CHU-KHOI-DONG.md` | DO | Tất cả |
+| `TEAM_STRUCTURE.md` | DO | Tất cả |
+| `GIT_BRANCH_STRATEGY.md` | DO | Tất cả |
 | GraphQL schema (hợp đồng API) | BE | FE, AI |
 | Redis seat inventory | DE | BE |
 | Kafka event pipeline | DE | BE |
@@ -819,13 +918,16 @@ Docker, Docker Compose, Nginx, GitHub Actions, Node.js 20, PowerShell/Bash scrip
 | WebSocket real-time seats | **R** | **A** | C | I | C |
 | Shared package (`@bus/shared`) | C | C | **A** | C | **R** |
 | Quên/đặt lại mật khẩu | **R** | **A** | I | I | I |
+| Hủy vé (bảo mật chủ booking) | **R** | **A** | I | I | C |
 | User saved passengers | I | **R/A** | C | I | I |
 
 ---
 
-# Phân công từng file (162 files)
+# Phân công từng file (theo codebase 24/06/2026)
 
 Quy ước: **Chính** = phụ trách chính · **Phối** = phối hợp
+
+> `apps/web` đã mở rộng (UI kit, admin CRUD, domain components, auth split layout). SEO slug dùng `[slug]/page.tsx` — **không còn** `ve-xe-[slug]/RouteSearchClient.tsx`.
 
 ## Root (8 files)
 
@@ -840,6 +942,9 @@ Quy ước: **Chính** = phụ trách chính · **Phối** = phối hợp
 | `COPYRIGHT.md` | DO | Tất cả |
 | `LICENSE` | DO | — |
 | `GHI-CHU-KHOI-DONG.md` | DO | Tất cả |
+| `TEAM_STRUCTURE.md` | DO | Tất cả |
+| `GIT_BRANCH_STRATEGY.md` | DO | Tất cả |
+| `MODULE_5.md` | DE, AI | BE, FE, DO |
 
 ## `.cursor/` (1 file)
 
@@ -859,7 +964,9 @@ Quy ước: **Chính** = phụ trách chính · **Phối** = phối hợp
 |------|-------|------|
 | `.vscode/settings.json` | DO | — |
 
-## `apps/web/` (48 files)
+## `apps/web/` (118 files)
+
+### Cấu hình & build (8)
 
 | File | Chính | Phối |
 |------|-------|------|
@@ -871,47 +978,157 @@ Quy ước: **Chính** = phụ trách chính · **Phối** = phối hợp
 | `apps/web/tailwind.config.js` | FE | — |
 | `apps/web/postcss.config.js` | FE | — |
 | `apps/web/scripts/process-logo.cjs` | FE | — |
+
+### `public/` — assets (18)
+
+| File | Chính | Phối |
+|------|-------|------|
 | `apps/web/public/.gitkeep` | FE | — |
 | `apps/web/public/images/cappy-bus-logo.png` | FE | — |
 | `apps/web/public/images/cappy-bus-logo-src.png` | FE | — |
 | `apps/web/public/images/hero-bus.png` | FE | — |
+| `apps/web/public/images/hero-coach.jpg` | FE | — |
+| `apps/web/public/images/bus-limousine.jpg` | FE | — |
+| `apps/web/public/images/bus-sleeper.jpg` | FE | — |
+| `apps/web/public/images/coach-default.svg` | FE | — |
+| `apps/web/public/images/operator-default.svg` | FE | — |
+| `apps/web/public/images/offer-summer.svg` | FE | — |
+| `apps/web/public/images/dest-hcm.jpg` | FE | — |
+| `apps/web/public/images/dest-hanoi.jpg` | FE | — |
+| `apps/web/public/images/dest-danang.jpg` | FE | — |
+| `apps/web/public/images/dest-dalat.jpg` | FE | — |
+| `apps/web/public/images/dest-nhatrang.jpg` | FE | — |
+| `apps/web/public/images/dest-cantho.jpg` | FE | — |
+| `apps/web/public/images/destination-danang.svg` | FE | — |
+| `apps/web/public/images/destination-dalat.svg` | FE | — |
+
+### `src/app/` — routes (25)
+
+| File | Chính | Phối |
+|------|-------|------|
 | `apps/web/src/app/layout.tsx` | FE | — |
 | `apps/web/src/app/page.tsx` | FE | AI |
 | `apps/web/src/app/globals.css` | FE | — |
 | `apps/web/src/app/[slug]/page.tsx` | FE | BE |
 | `apps/web/src/app/trips/page.tsx` | FE | BE |
 | `apps/web/src/app/trips/[id]/page.tsx` | FE | BE |
-| `apps/web/src/app/ve-xe-[slug]/RouteSearchClient.tsx` | FE | BE |
 | `apps/web/src/app/booking/page.tsx` | FE | BE |
 | `apps/web/src/app/lookup/page.tsx` | FE | BE |
 | `apps/web/src/app/my-bookings/page.tsx` | FE | BE |
+| `apps/web/src/app/my-tickets/page.tsx` | FE | BE |
+| `apps/web/src/app/my-tickets/[bookingId]/page.tsx` | FE | BE |
+| `apps/web/src/app/profile/page.tsx` | FE | BE |
 | `apps/web/src/app/login/page.tsx` | FE | BE |
 | `apps/web/src/app/register/page.tsx` | FE | BE |
 | `apps/web/src/app/forgot-password/page.tsx` | FE | BE |
 | `apps/web/src/app/reset-password/page.tsx` | FE | BE |
 | `apps/web/src/app/admin/layout.tsx` | FE | — |
 | `apps/web/src/app/admin/page.tsx` | FE | BE, DE |
+| `apps/web/src/app/admin/buses/page.tsx` | FE | BE |
+| `apps/web/src/app/admin/routes/page.tsx` | FE | BE, DE |
+| `apps/web/src/app/admin/stops/page.tsx` | FE | BE, DE |
+| `apps/web/src/app/admin/trips/page.tsx` | FE | BE |
+| `apps/web/src/app/admin/events/page.tsx` | FE | DE |
 | `apps/web/src/app/admin/layout/page.tsx` | FE | BE, DE |
 | `apps/web/src/app/admin/layout/default-layouts.ts` | FE | DE |
+
+### `src/components/` — shared UI (15)
+
+| File | Chính | Phối |
+|------|-------|------|
 | `apps/web/src/components/Navbar.tsx` | FE | — |
 | `apps/web/src/components/BrandLogo.tsx` | FE | — |
 | `apps/web/src/components/CopyrightNotice.tsx` | FE | DO |
 | `apps/web/src/components/AuthProvider.tsx` | FE | BE |
 | `apps/web/src/components/AuthGuard.tsx` | FE | BE |
 | `apps/web/src/components/AuthLayout.tsx` | FE | — |
+| `apps/web/src/components/auth/AuthSplitLayout.tsx` | FE | — |
 | `apps/web/src/components/Providers.tsx` | FE | — |
 | `apps/web/src/components/ErrorBoundary.tsx` | FE | — |
 | `apps/web/src/components/SeatMapGrid.tsx` | FE | BE |
 | `apps/web/src/components/TripAvailabilityBadge.tsx` | FE | DE |
+| `apps/web/src/components/CapyAI.tsx` | FE | AI |
+| `apps/web/src/components/ETicketCard.tsx` | FE | BE |
+| `apps/web/src/components/TicketQRCode.tsx` | FE | BE |
+
+### `src/components/domain/` — nghiệp vụ (10)
+
+| File | Chính | Phối |
+|------|-------|------|
+| `apps/web/src/components/domain/index.ts` | FE | — |
+| `apps/web/src/components/domain/TripSearchBox.tsx` | FE | BE |
+| `apps/web/src/components/domain/TripResultCard.tsx` | FE | BE |
+| `apps/web/src/components/domain/LocationField.tsx` | FE | BE |
+| `apps/web/src/components/domain/BookingProgress.tsx` | FE | — |
+| `apps/web/src/components/domain/CancelBookingButton.tsx` | FE | BE |
+| `apps/web/src/components/domain/PromoVoucherCard.tsx` | FE | — |
+| `apps/web/src/components/domain/SavedPassengerPicker.tsx` | FE | BE |
+| `apps/web/src/components/domain/AccountDashboard.tsx` | FE | BE |
+
+### `src/components/ui/` — design system (12)
+
+| File | Chính | Phối |
+|------|-------|------|
+| `apps/web/src/components/ui/index.ts` | FE | — |
+| `apps/web/src/components/ui/Button.tsx` | FE | — |
+| `apps/web/src/components/ui/Input.tsx` | FE | — |
+| `apps/web/src/components/ui/Select.tsx` | FE | — |
+| `apps/web/src/components/ui/Textarea.tsx` | FE | — |
+| `apps/web/src/components/ui/Field.tsx` | FE | — |
+| `apps/web/src/components/ui/Card.tsx` | FE | — |
+| `apps/web/src/components/ui/Badge.tsx` | FE | — |
+| `apps/web/src/components/ui/Modal.tsx` | FE | — |
+| `apps/web/src/components/ui/Table.tsx` | FE | — |
+| `apps/web/src/components/ui/Skeleton.tsx` | FE | — |
+| `apps/web/src/components/ui/PageShell.tsx` | FE | — |
+
+### `src/components/admin/` — admin dashboard (12)
+
+| File | Chính | Phối |
+|------|-------|------|
+| `apps/web/src/components/admin/AdminShell.tsx` | FE | — |
+| `apps/web/src/components/admin/AdminDataTable.tsx` | FE | — |
+| `apps/web/src/components/admin/StatCard.tsx` | FE | DE |
+| `apps/web/src/components/admin/DashboardSkeleton.tsx` | FE | — |
+| `apps/web/src/components/admin/EmptyState.tsx` | FE | — |
+| `apps/web/src/components/admin/RevenueChart.tsx` | FE | DE |
+| `apps/web/src/components/admin/TicketsChart.tsx` | FE | DE |
+| `apps/web/src/components/admin/TopList.tsx` | FE | DE |
+| `apps/web/src/components/admin/OrdersTable.tsx` | FE | BE |
+| `apps/web/src/components/admin/CheckInCard.tsx` | FE | BE |
+| `apps/web/src/components/admin/TripBookingsModal.tsx` | FE | BE |
+| `apps/web/src/components/admin/TripSeatModal.tsx` | FE | BE |
+
+### `src/hooks/` (3)
+
+| File | Chính | Phối |
+|------|-------|------|
 | `apps/web/src/hooks/useAuth.ts` | FE | BE |
 | `apps/web/src/hooks/useDebounce.ts` | FE | — |
+| `apps/web/src/hooks/useTodayVN.ts` | FE | DE |
+
+### `src/lib/` (18)
+
+| File | Chính | Phối |
+|------|-------|------|
 | `apps/web/src/lib/graphql.ts` | FE | BE |
 | `apps/web/src/lib/auth.ts` | FE | BE |
+| `apps/web/src/lib/auth-errors.ts` | FE | BE |
 | `apps/web/src/lib/session.ts` | FE | BE |
 | `apps/web/src/lib/seo.ts` | FE | BE |
 | `apps/web/src/lib/datetime.ts` | FE | DE |
 | `apps/web/src/lib/trip-availability.ts` | FE | DE |
 | `apps/web/src/lib/trip-search.ts` | FE | DE |
+| `apps/web/src/lib/marketing.ts` | FE | — |
+| `apps/web/src/lib/images.ts` | FE | — |
+| `apps/web/src/lib/route-catalog.ts` | FE | DE |
+| `apps/web/src/lib/roles.ts` | FE | BE |
+| `apps/web/src/lib/cn.ts` | FE | — |
+| `apps/web/src/lib/tickets.ts` | FE | BE |
+| `apps/web/src/lib/saved-passengers.ts` | FE | BE |
+| `apps/web/src/lib/admin-crud.ts` | FE | BE |
+| `apps/web/src/lib/admin-dashboard.ts` | FE | DE |
+| `apps/web/src/lib/admin-datetime.ts` | FE | DE |
 
 ## `apps/mcp-server/` (5 files)
 
@@ -1097,11 +1314,33 @@ Quy ước: **Chính** = phụ trách chính · **Phối** = phối hợp
 
 ---
 
+# Tài liệu bắt buộc đọc (cả nhóm 5 người)
+
+| Thứ tự | File | Ai đọc trước | Nội dung |
+|--------|------|--------------|----------|
+| 1 | [GHI-CHU-KHOI-DONG.md](./GHI-CHU-KHOI-DONG.md) | Tất cả | Chạy Docker, port, tài khoản demo |
+| 2 | [GIT_BRANCH_STRATEGY.md](./GIT_BRANCH_STRATEGY.md) | Tất cả | Nhánh Git, PR, commit message |
+| 3 | **TEAM_STRUCTURE.md** (file này) | Tất cả | Vai trò + file phụ trách |
+| 4 | [MODULE_5.md](./MODULE_5.md) | DE, AI, FE (admin), BE | Analytics, Capy AI, MCP |
+| 5 | `services/api-gateway/src/schema.graphql` | FE, BE, AI | Hợp đồng API |
+
+### Sprint đề xuất — phân việc 5 người (tuần 1)
+
+| Người | Task đề xuất | Nhánh mẫu |
+|-------|--------------|-----------|
+| FE | Polish admin mobile + `releaseSeats` UI khi rời trang chọn ghế | `feature/fe-release-seats-ui` |
+| BE | GraphQL `requestPasswordReset` + `resetPassword` | `feature/be-reset-password` |
+| DE | Pipeline `RouteTicketStat` + seed tuyến Cần Thơ | `feature/de-route-ticket-stat` |
+| AI | Capy AI hiển thị nguồn tool + test MCP trên Cursor | `feature/ai-capy-sources` |
+| DO | Tạo `develop`, CI trên PR, cập nhật port doc | `feature/do-develop-branch-ci` |
+
+---
+
 # Tổng kết phạm vi bao phủ
 
 | Hạng mục | Số lượng | Bao phủ |
 |----------|----------|---------|
-| File nguồn | 162 | 100% — mỗi file có Chính + Phối |
+| File nguồn | ~275 (apps/web 118 + services + packages + infra) | 100% — mỗi file có Chính + Phối |
 | Workspace packages | 16 | 100% |
 | Microservices | 11 (+ gateway) | 100% |
 | PostgreSQL databases | 7 | 100% |
@@ -1120,4 +1359,4 @@ Quy ước: **Chính** = phụ trách chính · **Phối** = phối hợp
 
 ---
 
-*Phân tích dựa hoàn toàn trên source code thực tế tại `D:/Web Sum 26`, ngày 24/06/2026.*
+*Cập nhật theo codebase `Web Sum 26` — 24/06/2026. Git workflow: [GIT_BRANCH_STRATEGY.md](./GIT_BRANCH_STRATEGY.md). Module 5: [MODULE_5.md](./MODULE_5.md).*

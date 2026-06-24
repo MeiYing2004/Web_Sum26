@@ -1,14 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Activity } from 'lucide-react';
+import { Activity, Construction } from 'lucide-react';
 import { gql } from '@/lib/graphql';
 import { useAuth } from '@/hooks/useAuth';
 import { formatAdminDate } from '@/lib/admin-datetime';
 import { statusLabel, statusTone } from '@/lib/admin-dashboard';
+import { ADMIN_EVENT_LOGS_ENABLED } from '@/lib/admin-features';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
+import EmptyState from '@/components/admin/EmptyState';
 
 type EventLog = {
   id: string;
@@ -33,6 +35,26 @@ const EVENT_LOGS_QUERY = `
 `;
 
 export default function AdminEventsPage() {
+  if (!ADMIN_EVENT_LOGS_ENABLED) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <p className="text-sm text-slate-500">Theo dõi thay đổi trạng thái booking</p>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Nhật ký sự kiện</h2>
+        </div>
+        <EmptyState
+          icon={Construction}
+          title="Chức năng đang được phát triển"
+          description="Nhật ký sự kiện sẽ sớm khả dụng khi backend hoàn thiện."
+        />
+      </div>
+    );
+  }
+
+  return <AdminEventsContent />;
+}
+
+function AdminEventsContent() {
   const { getToken } = useAuth();
   const [events, setEvents] = useState<EventLog[]>([]);
   const [loading, setLoading] = useState(true);

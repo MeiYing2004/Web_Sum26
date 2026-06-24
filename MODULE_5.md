@@ -2,7 +2,16 @@
 
 > **Dự án:** Cappy Bus — Nền tảng đặt vé xe khách  
 > **Bản quyền:** © 2026 Lữ Minh Hoàng  
-> **Trạng thái:** Đã triển khai phần lớn — xem [§7 Checklist](#7-checklist-đối-chiếu-yêu-cầu)
+> **Trạng thái:** Đã triển khai phần lớn — xem [§7 Checklist](#7-checklist-đối-chiếu-yêu-cầu)  
+> **Nhóm 5 người:** Phân vai & Git workflow → [TEAM_STRUCTURE.md](./TEAM_STRUCTURE.md) · [GIT_BRANCH_STRATEGY.md](./GIT_BRANCH_STRATEGY.md)
+
+| Vai trò | Trọng tâm Module 5 |
+|---------|-------------------|
+| **DE** | Kafka pipeline, `analytics-service`, `RouteTicketStat` |
+| **AI** | `ai-service`, `mcp-server`, Capy AI tools |
+| **BE** | GraphQL analytics queries, gRPC handlers phối hợp DE |
+| **FE** | Admin dashboard charts, `CapyAI.tsx` |
+| **DO** | Docker MCP port, health check AI service |
 
 ---
 
@@ -451,9 +460,10 @@ npm run test:production
 
 | File | Nội dung |
 |------|----------|
-| `TEAM_STRUCTURE.md` | Phân chia team & kiến trúc tổng thể |
-| `GHI-CHU-KHOI-DONG.md` | Ghi chú khởi động local |
-| `COPYRIGHT.md` | Bản quyền Lữ Minh Hoàng |
+| [TEAM_STRUCTURE.md](./TEAM_STRUCTURE.md) | Phân chia 5 vai trò, lộ trình học 4 tuần |
+| [GIT_BRANCH_STRATEGY.md](./GIT_BRANCH_STRATEGY.md) | Nhánh Git, PR, quy trình nhóm 5 người |
+| [GHI-CHU-KHOI-DONG.md](./GHI-CHU-KHOI-DONG.md) | Ghi chú khởi động local |
+| [COPYRIGHT.md](./COPYRIGHT.md) | Bản quyền Lữ Minh Hoàng |
 
 ---
 

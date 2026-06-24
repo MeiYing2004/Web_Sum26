@@ -4,6 +4,14 @@
 > Tài liệu nhanh để chạy web, tìm chuyến, đặt vé và Capy AI trên Windows.  
 > **Cập nhật:** tháng 6/2026 — Gemini API, Docker gateway, gRPC ports.
 
+**Nhóm 5 người — đọc thêm:**
+
+| Tài liệu | Mục đích |
+|----------|----------|
+| [TEAM_STRUCTURE.md](./TEAM_STRUCTURE.md) | Vai trò FE/BE/DE/AI/DO, file phụ trách, lộ trình 4 tuần |
+| [GIT_BRANCH_STRATEGY.md](./GIT_BRANCH_STRATEGY.md) | Nhánh Git, PR, commit convention |
+| [MODULE_5.md](./MODULE_5.md) | Analytics, Capy AI, MCP (Module 5) |
+
 ---
 
 ## Bảng port quan trọng

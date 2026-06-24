@@ -257,8 +257,8 @@ async function demoReply(lastMessage: string, note?: string) {
   }
 
   return {
-    reply: `${prefix}Xin chào! Tôi là Capy AI — trợ lý đặt vé Cappy Bus. Tôi có thể giúp bạn tìm chuyến xe, tra cứu booking hoặc giải thích chính sách vé.`,
-    sources: ['Capy AI — trợ lý đặt vé'],
+    reply: `${prefix}Xin chào! Tôi là Luhoang — trợ lý đặt vé Cappy Bus. Tôi có thể giúp bạn tìm chuyến xe, tra cứu booking hoặc giải thích chính sách vé.`,
+    sources: ['Luhoang — trợ lý đặt vé'],
   };
 }
 
@@ -286,7 +286,7 @@ app.post('/chat', async (req, res) => {
     try {
       const result = await generateText({
         model,
-        system: `Bạn là Capy AI — trợ lý đặt vé xe khách Cappy Bus (timezone Asia/Ho_Chi_Minh).
+        system: `Bạn là Luhoang — trợ lý đặt vé xe khách Cappy Bus (timezone Asia/Ho_Chi_Minh).
 Hôm nay theo giờ Việt Nam: ${today}.
 
 QUY TẮC BẮT BUỘC:

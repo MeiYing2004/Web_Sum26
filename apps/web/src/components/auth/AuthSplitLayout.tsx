@@ -16,7 +16,7 @@ export const AUTH_CARD_CLASS =
 const DEFAULT_HIGHLIGHTS: { icon: LucideIcon; text: string }[] = [
   { icon: Zap, text: 'Đặt vé nhanh chóng' },
   { icon: Ticket, text: 'Quản lý vé mọi lúc' },
-  { icon: Bot, text: 'Tích hợp Capy AI' },
+  { icon: Bot, text: 'Tích hợp Luhoang' },
 ];
 
 type AuthSplitLayoutProps = {

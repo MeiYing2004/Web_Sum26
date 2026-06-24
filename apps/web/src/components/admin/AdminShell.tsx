@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { avatarGradient, userInitials } from '@/lib/auth';
+import { ADMIN_EVENT_LOGS_ENABLED } from '@/lib/admin-features';
 
 const NAV = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
@@ -24,9 +25,11 @@ const NAV = [
   { href: '/admin/stops', label: 'Điểm dừng', icon: MapPin },
   { href: '/admin/buses', label: 'Xe', icon: Bus },
   { href: '/admin/trips', label: 'Chuyến xe', icon: LayoutGrid },
-  { href: '/admin/events', label: 'Nhật ký', icon: ScrollText },
+  ...(ADMIN_EVENT_LOGS_ENABLED
+    ? [{ href: '/admin/events' as const, label: 'Nhật ký', icon: ScrollText }]
+    : []),
   { href: '/admin/layout', label: 'Sơ đồ ghế', icon: Settings2 },
-] as const;
+];
 
 const PAGE_TITLES: Record<string, string> = {
   '/admin': 'Dashboard',
