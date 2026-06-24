@@ -135,6 +135,18 @@ export async function confirmSeatsInRedis(
   return { success: true, message: 'Xác nhận ghế thành công' };
 }
 
+export async function unbookSeatsInRedis(
+  redis: Redis,
+  tripId: string,
+  seatIds: string[]
+): Promise<{ success: boolean; message: string }> {
+  const bookedKey = REDIS_KEYS.seatStatus(tripId) + ':booked';
+  for (const seatId of seatIds) {
+    await redis.srem(bookedKey, seatId);
+  }
+  return { success: true, message: 'Đã giải phóng ghế đã đặt' };
+}
+
 export async function getSeatStatuses(
   redis: Redis,
   tripId: string,

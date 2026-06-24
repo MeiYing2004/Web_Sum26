@@ -7,6 +7,9 @@ import { motion } from 'framer-motion';
 import { CheckCircle2, Eye, EyeOff, Loader2, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AuthLayout from '@/components/AuthLayout';
+import { Button } from '@/components/ui/Button';
+import { Field } from '@/components/ui/Field';
+import { Input } from '@/components/ui/Input';
 
 export default function ResetPasswordPage() {
   return (
@@ -54,7 +57,7 @@ function ResetPasswordForm() {
       <AuthLayout title="Hoàn tất!" subtitle="Mật khẩu đã được cập nhật">
         <div className="text-center">
           <CheckCircle2 className="mx-auto h-16 w-16 text-emerald-500" />
-          <p className="mt-4 text-sm text-gray-600">Đang chuyển đến trang đăng nhập...</p>
+          <p className="mt-4 text-body text-ink-muted">Đang chuyển đến trang đăng nhập...</p>
         </div>
       </AuthLayout>
     );
@@ -67,13 +70,12 @@ function ResetPasswordForm() {
     >
       {!token ? (
         <div className="text-center">
-          <p className="text-sm text-gray-500">Vui lòng dùng link trong email hoặc yêu cầu gửi lại.</p>
-          <Link
-            href="/forgot-password"
-            className="mt-6 inline-block rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            Gửi lại link
-          </Link>
+          <p className="text-body text-ink-muted">Vui lòng dùng link trong email hoặc yêu cầu gửi lại.</p>
+          <div className="mt-6">
+            <Link href="/forgot-password">
+              <Button>Gửi lại link</Button>
+            </Link>
+          </div>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -99,14 +101,10 @@ function ResetPasswordForm() {
               setErrors((p) => ({ ...p, confirm: '' }));
             }}
           />
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3 font-semibold text-white disabled:opacity-60"
-          >
+          <Button type="submit" disabled={loading} size="lg" className="w-full">
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
             {loading ? 'Đang lưu...' : 'Đặt lại mật khẩu'}
-          </button>
+          </Button>
         </form>
       )}
     </AuthLayout>
@@ -129,38 +127,25 @@ function PasswordField({
   onChange: (v: string) => void;
 }) {
   return (
-    <div>
-      <label className="mb-1.5 block text-sm font-medium text-gray-700">{label}</label>
+    <Field label={label} error={error}>
       <div className="relative">
-        <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-        <input
+        <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-subtle" />
+        <Input
           type={show ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="••••••••"
-          className={`w-full rounded-xl border py-3 pl-10 pr-10 outline-none transition-all duration-200 focus:ring-2 ${
-            error
-              ? 'border-red-300 focus:ring-red-500/20'
-              : 'border-gray-200 focus:border-blue-500 focus:ring-blue-500/20'
-          }`}
+          error={Boolean(error)}
+          className="h-12 pl-10 pr-10"
         />
         <button
           type="button"
           onClick={onToggle}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-subtle hover:text-ink-muted"
         >
           {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
       </div>
-      {error && (
-        <motion.p
-          initial={{ opacity: 0, y: -4 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-1.5 text-xs font-medium text-red-500"
-        >
-          {error}
-        </motion.p>
-      )}
-    </div>
+    </Field>
   );
 }

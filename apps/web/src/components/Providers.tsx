@@ -19,7 +19,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
               fontSize: '14px',
               fontWeight: 500,
             },
-            success: { iconTheme: { primary: '#2563eb', secondary: '#fff' } },
+            success: { iconTheme: { primary: '#4f46e5', secondary: '#fff' } },
             error: { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
           }}
         />

@@ -6,11 +6,13 @@ import {
   UserProfile,
   clearAuth,
   decodeToken,
+  getStoredProfile,
   getStoredToken,
   getUserFromStorage,
   saveAuth,
 } from '@/lib/auth';
-import { setAuthTokenGetter } from '@/lib/graphql';
+import { normalizeRole } from '@/lib/roles';
+import { gql, setAuthTokenGetter } from '@/lib/graphql';
 
 export type AuthContextValue = {
   user: AuthUser | null;
@@ -32,6 +34,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setUser(getUserFromStorage());
     setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    async function validateSession() {
+      const token = getStoredToken();
+      if (!token) return;
+      const decoded = decodeToken(token);
+      if (!decoded) {
+        clearAuth();
+        setUser(null);
+        return;
+      }
+      try {
+        const data = await gql<{ session: { valid: boolean; userId: string; role: string } }>(
+          `query { session { valid userId role } }`,
+          undefined,
+          { token }
+        );
+        if (!data.session?.valid) {
+          clearAuth();
+          setUser(null);
+          return;
+        }
+        const profile = getStoredProfile();
+        setUser({
+          userId: data.session.userId,
+          role: normalizeRole(data.session.role),
+          email: profile?.email,
+          fullName: profile?.fullName,
+        });
+      } catch {
+        // Giữ session local nếu gateway tạm thời không phản hồi
+      }
+    }
+
+    void validateSession();
   }, []);
 
   useEffect(() => {

@@ -10,7 +10,7 @@ const SERVICE_HEALTH_URLS: Array<{ name: string; url: string }> = [
   { name: 'analytics-service', url: process.env.ANALYTICS_HEALTH_URL || 'http://analytics-service:9109/health' },
   { name: 'ticket-service', url: process.env.TICKET_HEALTH_URL || 'http://ticket-service:9107/health' },
   { name: 'notification-service', url: process.env.NOTIFICATION_HEALTH_URL || 'http://notification-service:9108/health' },
-  { name: 'ai-service', url: process.env.AI_HEALTH_URL || 'http://ai-service:50060/health' },
+  { name: 'ai-service', url: process.env.AI_HEALTH_URL || 'http://ai-service:8765/health' },
 ];
 
 export async function getAggregatedHealth() {

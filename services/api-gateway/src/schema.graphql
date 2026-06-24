@@ -16,6 +16,14 @@ enum BookingStatus {
   CANCELLED
 }
 
+enum TripStatus {
+  ACTIVE
+  INACTIVE
+  DEPARTED
+  COMPLETED
+  CANCELLED
+}
+
 type LocationSuggestion {
   id: ID!
   name: String!
@@ -34,6 +42,9 @@ type TripSummary {
   price: Float!
   availableSeats: Int!
   durationMinutes: Int!
+  bookable: Boolean!
+  availabilityStatus: String!
+  availabilityLabel: String!
 }
 
 type TripDetail {
@@ -110,17 +121,69 @@ type BookingDetail {
   totalAmount: Float!
   passengers: [Passenger!]!
   createdAt: String!
+  routeName: String
+  origin: String
+  destination: String
+  operatorName: String
+  pickupPoint: String
+  dropoffPoint: String
+  departureTime: String
+  busPlate: String
+  paymentStatus: String
+  guestEmail: String
+  userId: ID
 }
 
 type PaymentResult {
   success: Boolean!
   message: String!
+  bookingId: ID
+  bookingCode: String
+}
+
+type ETicket {
+  id: ID!
+  ticketCode: String!
+  bookingId: ID!
+  bookingCode: String!
+  tripId: ID!
+  passengerName: String!
+  passengerPhone: String!
+  passengerEmail: String!
+  seatId: ID!
+  routeName: String!
+  origin: String!
+  destination: String!
+  operatorName: String!
+  pickupPoint: String!
+  dropoffPoint: String!
+  departureTime: String!
+  busPlate: String!
+  totalAmount: Float!
+  paymentStatus: String!
+  bookingStatus: String!
+  qrCode: String!
+  createdAt: String!
 }
 
 type AuthResult {
   token: String!
   userId: ID!
   role: String!
+}
+
+type SessionInfo {
+  valid: Boolean!
+  userId: ID
+  role: String
+}
+
+type SavedPassenger {
+  id: ID!
+  fullName: String!
+  phone: String!
+  email: String!
+  idNumber: String
 }
 
 type DailyRevenue {
@@ -140,10 +203,163 @@ type RouteStat {
   searchCount: Int!
 }
 
+type RouteCatalogRoute {
+  origin: String!
+  destination: String!
+  tripsCount: Int!
+  minPrice: Float!
+  durationMinutes: Int!
+  nextDepartureTime: String!
+}
+
+type RouteCatalog {
+  locations: [String!]!
+  routes: [RouteCatalogRoute!]!
+}
+
 type ConversionRate {
   totalSearches: Int!
   totalBookings: Int!
   conversionRate: Float!
+}
+
+type AdminRankItem {
+  name: String!
+  subtitle: String!
+  count: Int!
+  revenue: Float!
+}
+
+type AdminOrderRow {
+  ticketCode: String!
+  bookingCode: String!
+  customerName: String!
+  routeName: String!
+  origin: String!
+  destination: String!
+  seatId: String!
+  totalAmount: Float!
+  status: String!
+  createdAt: String!
+}
+
+type AdminEventLog {
+  id: ID!
+  bookingId: ID!
+  bookingCode: String!
+  eventType: String!
+  detail: String!
+  createdAt: String!
+}
+
+type AdminStats {
+  totalRevenue: Float!
+  ticketsSold: Int!
+  customers: Int!
+  activeTrips: Int!
+  conversionRate: Float!
+  totalSearches: Int!
+  totalBookings: Int!
+}
+
+type AdminDashboard {
+  stats: AdminStats!
+  revenue7Days: [DailyRevenue!]!
+  revenue30Days: [DailyRevenue!]!
+  topRoutes: [AdminRankItem!]!
+  topOperators: [AdminRankItem!]!
+  topCustomers: [AdminRankItem!]!
+  recentOrders: [AdminOrderRow!]!
+}
+
+# ─── Admin CRUD types ───────────────────────────────────────
+
+type AdminRouteStop {
+  id: ID!
+  name: String!
+  order: Int!
+}
+
+type AdminRoute {
+  id: ID!
+  name: String!
+  origin: String!
+  destination: String!
+  stops: [AdminRouteStop!]!
+  createdAt: String!
+}
+
+type AdminRouteList {
+  routes: [AdminRoute!]!
+  total: Int!
+}
+
+type AdminStop {
+  id: ID!
+  routeId: ID!
+  routeName: String!
+  name: String!
+  order: Int!
+}
+
+type AdminStopList {
+  stops: [AdminStop!]!
+  total: Int!
+}
+
+type AdminBus {
+  id: ID!
+  plate: String!
+  busType: String!
+  seatCount: Int!
+  layoutType: String!
+  seatLayoutJson: String!
+  operatorId: ID!
+  operatorName: String!
+}
+
+type AdminBusList {
+  buses: [AdminBus!]!
+  total: Int!
+}
+
+type AdminOperator {
+  id: ID!
+  name: String!
+}
+
+type AdminTrip {
+  id: ID!
+  routeId: ID!
+  routeName: String!
+  origin: String!
+  destination: String!
+  busId: ID!
+  busPlate: String!
+  busType: String!
+  operatorId: ID!
+  operatorName: String!
+  departureTime: String!
+  arrivalTime: String!
+  price: Float!
+  status: TripStatus!
+  pickupPoint: String!
+  dropoffPoint: String!
+  cancellationPolicy: String!
+}
+
+type AdminTripList {
+  trips: [AdminTrip!]!
+  total: Int!
+}
+
+type DeleteResult {
+  success: Boolean!
+}
+
+type AdminBookingList {
+  bookings: [BookingDetail!]!
+  total: Int!
 }
 
 type SeatUpdate {
@@ -156,6 +372,8 @@ type SeatUpdate {
 
 type Query {
   health: String!
+  session: SessionInfo!
+  savedPassengers: [SavedPassenger!]!
   autocompleteLocations(query: String!): [LocationSuggestion!]!
   searchTrips(
     origin: String!
@@ -173,12 +391,36 @@ type Query {
   tripDetail(tripId: ID!): TripDetail
   seatMap(tripId: ID!): SeatMap!
   booking(id: ID!): BookingDetail
-  bookingByCode(bookingCode: String!, email: String!): BookingDetail
+  bookingByCode(bookingCode: String!, email: String): BookingDetail
   myBookings: [BookingDetail!]!
+  myTickets(search: String, filter: String, email: String): [ETicket!]!
+  ticketsForBooking(bookingId: ID!, email: String): [ETicket!]!
+  ticket(id: ID!): ETicket
+  searchTickets(query: String!, email: String, filter: String): [ETicket!]!
   suggestNearestDate(origin: String!, destination: String!, travelDate: String!): String
+  routeCatalog(travelDate: String!, limit: Int): RouteCatalog!
   revenueSummary(fromDate: String, toDate: String): RevenueSummary!
   popularRoutes(limit: Int): [RouteStat!]!
   conversionRate: ConversionRate!
+  adminDashboard: AdminDashboard!
+
+  # Admin read — ADMIN + STAFF
+  adminRoutes(search: String, page: Int, pageSize: Int): AdminRouteList!
+  adminRoute(id: ID!): AdminRoute
+  adminStops(routeId: ID, search: String, page: Int, pageSize: Int): AdminStopList!
+  adminBuses(search: String, operatorId: ID, page: Int, pageSize: Int): AdminBusList!
+  adminTrips(
+    routeId: ID
+    status: TripStatus
+    search: String
+    fromDate: String
+    toDate: String
+    page: Int
+    pageSize: Int
+  ): AdminTripList!
+  adminOperators: [AdminOperator!]!
+  adminBookingsByTrip(tripId: ID!, search: String, page: Int, pageSize: Int): AdminBookingList!
+  adminEventLogs(limit: Int): [AdminEventLog!]!
 }
 
 type Mutation {
@@ -197,6 +439,58 @@ type Mutation {
   checkIn(bookingCode: String!, ticketId: String): PaymentResult!
   blockSeats(tripId: ID!, seatIds: [ID!]!, blocked: Boolean!): Boolean!
   updateBusSeatLayout(busLayoutType: String!, layoutJson: String!): Boolean!
+
+  # Admin CRUD — ADMIN only
+  createRoute(name: String!, origin: String!, destination: String!): AdminRoute!
+  updateRoute(id: ID!, name: String!, origin: String!, destination: String!): AdminRoute!
+  deleteRoute(id: ID!): DeleteResult!
+  createStop(routeId: ID!, name: String!, order: Int!): AdminStop!
+  updateStop(id: ID!, name: String!, order: Int!): AdminStop!
+  deleteStop(id: ID!): DeleteResult!
+  createBus(
+    plate: String!
+    busType: String!
+    seatCount: Int!
+    layoutType: String!
+    operatorId: ID!
+    seatLayoutJson: String
+  ): AdminBus!
+  updateBus(
+    id: ID!
+    plate: String!
+    busType: String!
+    seatCount: Int!
+    layoutType: String!
+    operatorId: ID!
+    seatLayoutJson: String
+  ): AdminBus!
+  deleteBus(id: ID!): DeleteResult!
+  createTrip(
+    routeId: ID!
+    busId: ID!
+    operatorId: ID!
+    departureTime: String!
+    arrivalTime: String!
+    price: Float!
+    pickupPoint: String!
+    dropoffPoint: String!
+    cancellationPolicy: String
+    status: TripStatus
+  ): AdminTrip!
+  updateTrip(
+    id: ID!
+    routeId: ID
+    busId: ID
+    operatorId: ID
+    departureTime: String
+    arrivalTime: String
+    price: Float
+    pickupPoint: String
+    dropoffPoint: String
+    cancellationPolicy: String
+    status: TripStatus
+  ): AdminTrip!
+  deleteTrip(id: ID!): DeleteResult!
 }
 
 type Subscription {

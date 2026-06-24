@@ -13,6 +13,13 @@ const GRAPHQL =
 
 let authTokenGetter: (() => string | null) | null = null;
 
+function formatGraphqlError(message: string): string {
+  if (/14 UNAVAILABLE|No connection established/i.test(message)) {
+    return 'Dịch vụ trip-service chưa chạy. Trong thư mục dự án chạy: docker compose up -d trip-service';
+  }
+  return message;
+}
+
 export function setAuthTokenGetter(getter: () => string | null) {
   authTokenGetter = getter;
 }
@@ -41,9 +48,9 @@ export async function gql<T = Record<string, unknown>>(
   }
 
   if (!res.ok) {
-    throw new Error(json.errors?.[0]?.message || `Lỗi máy chủ (${res.status})`);
+    throw new Error(formatGraphqlError(json.errors?.[0]?.message || `Lỗi máy chủ (${res.status})`));
   }
-  if (json.errors?.length) throw new Error(json.errors[0].message);
+  if (json.errors?.length) throw new Error(formatGraphqlError(json.errors[0].message));
   if (!json.data) throw new Error('Không nhận được dữ liệu từ máy chủ');
   return json.data;
 }

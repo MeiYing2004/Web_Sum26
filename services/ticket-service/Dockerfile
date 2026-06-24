@@ -14,4 +14,4 @@ COPY --from=builder /app/services/ticket-service/dist ./dist
 COPY --from=builder /app/services/ticket-service/prisma ./prisma
 COPY --from=builder /app/services/ticket-service/package.json ./
 ENV NODE_PATH=/app/node_modules
-CMD ["sh", "-c", "npx prisma db push && node dist/index.js"]
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node dist/index.js"]

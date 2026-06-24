@@ -16,4 +16,4 @@ COPY --from=builder /app/services/trip-service/prisma ./services/trip-service/pr
 COPY --from=builder /app/services/trip-service/package.json ./services/trip-service/
 ENV NODE_PATH=/app/node_modules
 WORKDIR /app/services/trip-service
-CMD ["sh", "-c", "npx prisma db push && npx tsx prisma/seed.ts && node dist/index.js"]
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && npx tsx prisma/seed.ts && node dist/index.js"]

@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, TripStatus } from '@prisma/client';
 
-import { DEFAULT_LAYOUTS } from '@bus/shared';
+import { DEFAULT_LAYOUTS, todayVN, addDaysVN } from '@bus/shared';
 
 const prisma = new PrismaClient();
 
@@ -47,12 +47,22 @@ async function main() {
 
   for (let i = 0; i < busConfigs.length; i++) {
     const cfg = busConfigs[i];
+    const operator = operators[i % operators.length];
+    if (!operator) {
+      console.warn('No operators found — skip bus seed');
+      break;
+    }
     const bus = await prisma.bus.upsert({
       where: { plate: cfg.plate },
       update: { seatLayoutJson: DEFAULT_LAYOUTS[cfg.layoutType] },
-      create: { ...cfg, seatLayoutJson: DEFAULT_LAYOUTS[cfg.layoutType], operatorId: operators[i % operators.length].id },
+      create: { ...cfg, seatLayoutJson: DEFAULT_LAYOUTS[cfg.layoutType], operatorId: operator.id },
     });
     buses.push(bus);
+  }
+
+  if (buses.length === 0) {
+    console.warn('No buses seeded — skip trip seed');
+    return;
   }
 
   const routes = [
@@ -80,29 +90,33 @@ async function main() {
       },
     });
 
-    for (let day = 0; day < 7; day++) {
+    for (let day = -1; day < 14; day++) {
       for (const hour of [6, 8, 14, 20, 22]) {
-        const dep = new Date();
-        dep.setDate(dep.getDate() + day);
-        dep.setHours(hour, 0, 0, 0);
+        const dateStr = addDaysVN(todayVN(), day);
+        const dep = new Date(`${dateStr}T${String(hour).padStart(2, '0')}:00:00+07:00`);
         const arr = new Date(dep);
         arr.setHours(dep.getHours() + (r.destination === 'Đà Lạt' ? 8 : 6));
 
         const tripId = `trip-${route.id}-d${day}-h${hour}`;
         await prisma.trip.upsert({
           where: { id: tripId },
-          update: {},
+          update: {
+            departureTime: dep,
+            arrivalTime: arr,
+            price: 150000 + hour * 5000,
+            status: TripStatus.ACTIVE,
+          },
           create: {
             id: tripId,
             routeId: route.id,
-            busId: buses[day % buses.length].id,
-            operatorId: operators[day % operators.length].id,
+            busId: buses[((day % buses.length) + buses.length) % buses.length].id,
+            operatorId: operators[((day % operators.length) + operators.length) % operators.length].id,
             departureTime: dep,
             arrivalTime: arr,
             price: 150000 + hour * 5000,
             pickupPoint: r.origin === 'TP.HCM' ? 'Bến xe Miền Đông' : `Bến xe ${r.origin}`,
             dropoffPoint: `Bến xe ${r.destination}`,
-            status: 'ACTIVE',
+            status: TripStatus.ACTIVE,
           },
         });
       }

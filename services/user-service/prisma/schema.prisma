@@ -1,3 +1,7 @@
+// DEPRECATED — accounts consolidated into auth-service `users` table (bus_auth).
+// Saved passengers: auth-service `saved_passengers` + GetSavedPassengers gRPC.
+// This file is kept only for historical reference; user-service no longer uses Prisma.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -5,13 +9,4 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-}
-
-model SavedPassenger {
-  id       String @id @default(cuid())
-  userId   String
-  fullName String
-  phone    String
-  email    String
-  idNumber String?
 }

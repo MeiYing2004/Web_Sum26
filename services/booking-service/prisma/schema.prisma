@@ -14,17 +14,28 @@ model Booking {
   userId          String?
   guestEmail      String
   status          String      @default("DRAFT")
+  paymentStatus   String      @default("PENDING")
   holdToken       String?
   totalAmount     Float
   paymentDeadline DateTime?
+  routeName       String      @default("")
+  origin          String      @default("")
+  destination     String      @default("")
+  operatorName    String      @default("")
+  pickupPoint     String      @default("")
+  dropoffPoint    String      @default("")
+  departureTime   String      @default("")
+  busPlate        String      @default("")
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   passengers      Passenger[]
   statusLogs      StatusLog[]
 
   @@index([userId])
+  @@index([guestEmail])
   @@index([bookingCode])
   @@index([status])
+  @@index([paymentStatus])
 }
 
 model Passenger {

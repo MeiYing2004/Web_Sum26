@@ -10,6 +10,7 @@ service SeatInventoryService {
   rpc ReleaseSeats(ReleaseSeatsRequest) returns (ReleaseSeatsResponse);
   rpc ConfirmSeats(ConfirmSeatsRequest) returns (ConfirmSeatsResponse);
   rpc BlockSeats(BlockSeatsRequest) returns (BlockSeatsResponse);
+  rpc UnbookSeats(UnbookSeatsRequest) returns (UnbookSeatsResponse);
 }
 
 enum SeatStatus {
@@ -84,4 +85,14 @@ message BlockSeatsRequest {
 
 message BlockSeatsResponse {
   bool success = 1;
+}
+
+message UnbookSeatsRequest {
+  string trip_id = 1;
+  repeated string seat_ids = 2;
+}
+
+message UnbookSeatsResponse {
+  bool success = 1;
+  string message = 2;
 }

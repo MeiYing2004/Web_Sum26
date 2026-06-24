@@ -34,11 +34,17 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
+    healthcheck:
+      test: ["CMD", "cub", "zk-ready", "localhost:2181", "10"]
+      interval: 5s
+      timeout: 15s
+      retries: 12
 
   kafka:
     image: confluentinc/cp-kafka:7.6.1
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     ports:
       - "9092:9092"
     environment:
@@ -49,11 +55,13 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
     healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 10s
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 5s
       timeout: 10s
-      retries: 10
+      retries: 18
+      start_period: 45s
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -65,9 +73,10 @@ services:
       RABBITMQ_DEFAULT_PASS: bus123
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 10s
+      interval: 15s
+      timeout: 30s
       retries: 10
+      start_period: 90s
 
   nginx:
     image: nginx:1.27-alpine
@@ -78,6 +87,7 @@ services:
     depends_on:
       - api-gateway
       - web
+      - ai-service
 
   api-gateway:
     build:
@@ -95,7 +105,8 @@ services:
       AUTH_SERVICE_URL: auth-service:50051
       USER_SERVICE_URL: user-service:50052
       PAYMENT_SERVICE_URL: payment-service:50056
-      AI_SERVICE_URL: http://ai-service:50060
+      TICKET_SERVICE_URL: ticket-service:50057
+      AI_SERVICE_URL: http://ai-service:8765
     ports:
       - "4000:4000"
     depends_on:
@@ -153,8 +164,10 @@ services:
       RABBITMQ_URL: amqp://bus:bus123@rabbitmq:5672
       KAFKA_BROKERS: kafka:29092
       GRPC_PORT: 50055
+      TRIP_SERVICE_URL: trip-service:50053
       SEAT_SERVICE_URL: seat-inventory-service:50054
       PAYMENT_SERVICE_URL: payment-service:50056
+      TICKET_SERVICE_URL: ticket-service:50057
     ports:
       - "50055:50055"
     depends_on:
@@ -188,8 +201,14 @@ services:
     environment:
       SERVICE_NAME: ticket-service
       HEALTH_PORT: 9107
+      GRPC_PORT: 50057
       DATABASE_URL: postgresql://bus_ticket:bus123@postgres:5432/bus_ticket
       RABBITMQ_URL: amqp://bus:bus123@rabbitmq:5672
+      BOOKING_SERVICE_URL: booking-service:50055
+      TRIP_SERVICE_URL: trip-service:50053
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "50057:50057"
     depends_on:
       postgres:
         condition: service_healthy
@@ -216,6 +235,7 @@ services:
       SERVICE_NAME: auth-service
       HEALTH_PORT: 9101
       DATABASE_URL: postgresql://bus_auth:bus123@postgres:5432/bus_auth
+      BUS_USER_DATABASE_URL: postgresql://bus_user:bus123@postgres:5432/bus_user
       JWT_SECRET: bus-booking-jwt-secret-change-in-prod
       GRPC_PORT: 50051
     ports:
@@ -260,14 +280,14 @@ services:
       context: .
       dockerfile: services/ai-service/Dockerfile
     environment:
-      PORT: 50060
+      PORT: 8765
       API_GATEWAY_URL: http://api-gateway:4000/graphql
       TRIP_SERVICE_URL: trip-service:50053
       BOOKING_SERVICE_URL: booking-service:50055
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
-      - "50060:50060"
+      - "8765:8765"
     depends_on:
       - api-gateway
       - trip-service
@@ -279,12 +299,25 @@ services:
       dockerfile: apps/mcp-server/Dockerfile
     environment:
       PORT: 3100
-      API_GATEWAY_URL: http://api-gateway:4000
+      REDIS_URL: redis://redis:6379
+      MCP_API_KEY: ${MCP_API_KEY:-bus-mcp-demo-key}
+      MCP_ROLE: ${MCP_ROLE:-admin}
+      API_GATEWAY_URL: http://api-gateway:4000/graphql
       ANALYTICS_SERVICE_URL: analytics-service:50059
     ports:
       - "3100:3100"
     depends_on:
       - api-gateway
+      - redis
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   web:
     build:
@@ -294,7 +327,7 @@ services:
       NEXT_PUBLIC_GRAPHQL_URL: http://localhost:4000/graphql
       NEXT_PUBLIC_WS_URL: ws://localhost:4000/graphql
       API_GATEWAY_URL: http://api-gateway:4000
-      AI_SERVICE_URL: http://ai-service:50060
+      AI_SERVICE_URL: http://ai-service:8765
     ports:
       - "3000:3000"
     depends_on:

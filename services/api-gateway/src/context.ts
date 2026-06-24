@@ -1,12 +1,13 @@
 import * as grpc from '@grpc/grpc-js';
-import { TripService, SeatInventoryService, BookingService, AuthService, AnalyticsService } from '@bus/proto';
-import { createRedisClient, checkLookupRateLimit } from '@bus/shared';
+import { TripService, SeatInventoryService, BookingService, AuthService, AnalyticsService, TicketService } from '@bus/proto';
+import { createRedisClient, checkLookupRateLimit, normalizeRole, hasAnyRole } from '@bus/shared';
 
 const TRIP_URL = process.env.TRIP_SERVICE_URL || 'localhost:50053';
 const SEAT_URL = process.env.SEAT_SERVICE_URL || 'localhost:50054';
 const BOOKING_URL = process.env.BOOKING_SERVICE_URL || 'localhost:50055';
 const AUTH_URL = process.env.AUTH_SERVICE_URL || 'localhost:50051';
 const ANALYTICS_URL = process.env.ANALYTICS_SERVICE_URL || 'localhost:50059';
+const TICKET_URL = process.env.TICKET_SERVICE_URL || 'localhost:50057';
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 export const redis = createRedisClient(REDIS_URL);
@@ -20,6 +21,7 @@ export interface GatewayContext {
   bookingClient: InstanceType<typeof BookingService>;
   authClient: InstanceType<typeof AuthService>;
   analyticsClient: InstanceType<typeof AnalyticsService>;
+  ticketClient: InstanceType<typeof TicketService>;
 }
 
 export async function createContext(authHeader?: string, clientIp = '0.0.0.0', requestId = 'unknown'): Promise<GatewayContext> {
@@ -34,7 +36,7 @@ export async function createContext(authHeader?: string, clientIp = '0.0.0.0', r
       );
     });
     if (validated.valid) {
-      user = { userId: validated.user_id, role: validated.role };
+      user = { userId: validated.user_id, role: normalizeRole(validated.role) };
     }
   }
 
@@ -47,11 +49,12 @@ export async function createContext(authHeader?: string, clientIp = '0.0.0.0', r
     bookingClient: new BookingService(BOOKING_URL, grpc.credentials.createInsecure()),
     authClient: new AuthService(AUTH_URL, grpc.credentials.createInsecure()),
     analyticsClient: new AnalyticsService(ANALYTICS_URL, grpc.credentials.createInsecure()),
+    ticketClient: new TicketService(TICKET_URL, grpc.credentials.createInsecure()),
   };
 }
 
 export function requireRole(ctx: GatewayContext, roles: string[]) {
-  if (!ctx.user || !roles.includes(ctx.user.role)) {
+  if (!ctx.user || !hasAnyRole(ctx.user.role, roles)) {
     throw new Error('Forbidden — insufficient permissions');
   }
 }

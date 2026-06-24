@@ -1,0 +1,7 @@
+<svg width="1200" height="800" viewBox="0 0 1200 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="800" fill="#E0E7FF"/>
+  <path d="M0 520L200 360L420 520L620 320L920 560L1200 380V800H0V520Z" fill="#4F46E5"/>
+  <path d="M0 620L160 500L360 620L540 450L860 680L1200 520V800H0V620Z" fill="#3730A3"/>
+  <circle cx="980" cy="170" r="78" fill="#D4AF37"/>
+  <text x="80" y="120" font-family="Inter,Arial,sans-serif" font-size="56" fill="#0F172A" font-weight="700">Da Lat</text>
+</svg>

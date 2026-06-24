@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package bus.ticket.v1;
+
+option java_multiple_files = true;
+
+service TicketService {
+  rpc ListByBooking(ListByBookingRequest) returns (ListTicketsResponse);
+  rpc ListForUser(ListForUserRequest) returns (ListTicketsResponse);
+  rpc Search(SearchTicketsRequest) returns (ListTicketsResponse);
+  rpc GetTicket(GetTicketRequest) returns (TicketDetail);
+  rpc CancelByBooking(CancelByBookingRequest) returns (CancelByBookingResponse);
+  rpc GetAdminInsights(GetAdminInsightsRequest) returns (GetAdminInsightsResponse);
+}
+
+message TicketDetail {
+  string id = 1;
+  string ticket_code = 2;
+  string booking_id = 3;
+  string booking_code = 4;
+  string trip_id = 5;
+  string passenger_name = 6;
+  string passenger_phone = 7;
+  string passenger_email = 8;
+  string seat_id = 9;
+  string route_name = 10;
+  string origin = 11;
+  string destination = 12;
+  string operator_name = 13;
+  string pickup_point = 14;
+  string dropoff_point = 15;
+  string departure_time = 16;
+  string bus_plate = 17;
+  double total_amount = 18;
+  string payment_status = 19;
+  string booking_status = 20;
+  string qr_code = 21;
+  string created_at = 22;
+}
+
+message ListByBookingRequest {
+  string booking_id = 1;
+}
+
+message ListForUserRequest {
+  string user_id = 1;
+  string search = 2;
+  string filter = 3;
+}
+
+message SearchTicketsRequest {
+  string query = 1;
+  string email = 2;
+  string filter = 3;
+}
+
+message GetTicketRequest {
+  string ticket_id = 1;
+}
+
+message CancelByBookingRequest {
+  string booking_id = 1;
+}
+
+message CancelByBookingResponse {
+  int32 updated_count = 1;
+}
+
+message ListTicketsResponse {
+  repeated TicketDetail tickets = 1;
+}
+
+message GetAdminInsightsRequest {
+  int32 orders_limit = 1;
+  int32 top_limit = 2;
+}
+
+message AdminRankItem {
+  string name = 1;
+  string subtitle = 2;
+  int32 count = 3;
+  double revenue = 4;
+}
+
+message AdminOrderRow {
+  string ticket_code = 1;
+  string booking_code = 2;
+  string customer_name = 3;
+  string route_name = 4;
+  string origin = 5;
+  string destination = 6;
+  string seat_id = 7;
+  double total_amount = 8;
+  string status = 9;
+  string created_at = 10;
+}
+
+message GetAdminInsightsResponse {
+  int32 tickets_sold = 1;
+  repeated AdminRankItem top_routes = 2;
+  repeated AdminRankItem top_operators = 3;
+  repeated AdminRankItem top_customers = 4;
+  repeated AdminOrderRow recent_orders = 5;
+}

@@ -1,3 +1,4 @@
+import { createServer } from 'http';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -6,15 +7,14 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import Redis from 'ioredis';
-import { REDIS_KEYS, sanitizeDate, sanitizeLocation } from '@bus/shared';
+import { REDIS_KEYS, sanitizeLocation, parseTravelDate, createRedisClient, normalizeRole, USER_ROLES } from '@bus/shared';
 
 const GRAPHQL_URL = process.env.API_GATEWAY_URL || 'http://localhost:4000/graphql';
 const MCP_API_KEY = process.env.MCP_API_KEY || 'bus-mcp-demo-key';
-const MCP_ROLE = process.env.MCP_ROLE || 'USER';
+const MCP_ROLE = normalizeRole(process.env.MCP_ROLE || 'customer');
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
-const redis = new Redis(REDIS_URL);
+const redis = createRedisClient(REDIS_URL);
 
 function assertAuth() {
   const key = process.env.MCP_SESSION_KEY;
@@ -23,7 +23,7 @@ function assertAuth() {
 
 function assertAdmin() {
   assertAuth();
-  if (MCP_ROLE !== 'ADMIN') throw new Error('Forbidden — ADMIN role required');
+  if (MCP_ROLE !== USER_ROLES.ADMIN) throw new Error('Forbidden — admin role required');
 }
 
 async function graphql(query: string, variables?: Record<string, unknown>, token?: string) {
@@ -47,7 +47,7 @@ function validateSearchTrips(args: Record<string, unknown> | undefined) {
   return {
     origin: sanitizeLocation(args.origin),
     destination: sanitizeLocation(args.destination),
-    travelDate: sanitizeDate(args.travelDate),
+    travelDate: parseTravelDate(args.travelDate),
   };
 }
 
@@ -86,7 +86,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case 'search_trips': {
       const v = validateSearchTrips(args as Record<string, unknown>);
       const data = await graphql(
-        `query($o:String!,$d:String!,$t:String!){searchTrips(origin:$o,destination:$d,travelDate:$t){id routeName price}}`,
+        `query($o:String!,$d:String!,$t:String!){searchTrips(origin:$o,destination:$d,travelDate:$t){id routeName price bookable availabilityStatus availabilityLabel}}`,
         { o: v.origin, d: v.destination, t: v.travelDate }
       );
       return { content: [{ type: 'text', text: JSON.stringify(data.searchTrips, null, 2) }] };
@@ -110,9 +110,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: 'text', text: JSON.stringify(data.revenueSummary, null, 2) }] };
     }
     case 'get_popular_routes': {
+      const limit = typeof args?.limit === 'number' ? args.limit : 10;
       const cached = await redis.get(REDIS_KEYS.mcpPopularRoutes());
       if (cached) return { content: [{ type: 'text', text: cached }] };
-      const data = await graphql(`{popularRoutes(limit:10){origin destination searchCount}}`);
+      const data = await graphql(`query($limit:Int){popularRoutes(limit:$limit){origin destination searchCount}}`, {
+        limit,
+      });
       const text = JSON.stringify(data.popularRoutes, null, 2);
       await redis.setex(REDIS_KEYS.mcpPopularRoutes(), 300, text);
       return { content: [{ type: 'text', text }] };
@@ -149,6 +152,29 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
 });
 
 async function main() {
+  const healthPort = Number(process.env.PORT || process.env.HEALTH_PORT || 0);
+  if (healthPort > 0) {
+    createServer((req, res) => {
+      if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            service: 'mcp-server',
+            role: MCP_ROLE,
+            transport: 'stdio',
+            redis: REDIS_URL.replace(/:[^:@]+@/, ':***@'),
+          })
+        );
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    }).listen(healthPort, () => {
+      console.error(`MCP health endpoint on :${healthPort} (stdio transport active)`);
+    });
+  }
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(`Bus Booking MCP v1.1 role=${MCP_ROLE}`);

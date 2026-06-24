@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 import { parseRouteSlug, buildSeoTitle, buildSeoDescription, SITE_URL } from '@/lib/seo';
-import RouteSearchClient from '../ve-xe-[slug]/RouteSearchClient';
+import { buildTripsSearchUrl } from '@/lib/trip-search';
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -26,15 +27,13 @@ export const revalidate = 300;
 
 export default async function SlugPage({ params }: Props) {
   const { slug } = await params;
-  if (!slug.startsWith('ve-xe-')) return null;
+  if (!slug.startsWith('ve-xe-')) {
+    redirect('/trips');
+  }
   const parsed = parseRouteSlug(slug);
-  if (!parsed) return <div>URL không hợp lệ</div>;
+  if (!parsed) {
+    redirect('/trips');
+  }
 
-  return (
-    <RouteSearchClient
-      initialOrigin={parsed.origin}
-      initialDestination={parsed.destination}
-      initialDate={parsed.date}
-    />
-  );
+  redirect(buildTripsSearchUrl(parsed.origin, parsed.destination, parsed.date));
 }

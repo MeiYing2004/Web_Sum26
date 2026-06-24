@@ -21,17 +21,19 @@ interface Props {
   selected: string[];
   holdingSeatId?: string | null;
   onSelect: (seatId: string) => void;
+  adminMode?: boolean;
+}
+
+function isSelectable(status: string, adminMode?: boolean) {
+  if (adminMode) return status === 'AVAILABLE' || status === 'BLOCKED';
+  return status === 'AVAILABLE';
 }
 
 function isVipSeat(seatId: string, rowIndex: number) {
   return rowIndex === 0 || /^A0[1-4]$/.test(seatId) || /^L0[1-4]$/.test(seatId);
 }
 
-function isSelectable(status: string) {
-  return status === 'AVAILABLE';
-}
-
-export function SeatMapGrid({ layout, seats, selected, holdingSeatId, onSelect }: Props) {
+export function SeatMapGrid({ layout, seats, selected, holdingSeatId, onSelect, adminMode }: Props) {
   const statusMap = Object.fromEntries(seats.map((s) => [s.seatId, s]));
 
   return (
@@ -44,7 +46,7 @@ export function SeatMapGrid({ layout, seats, selected, holdingSeatId, onSelect }
             </p>
           )}
 
-          <div className="relative mx-auto max-w-md rounded-[24px] border border-white/80 bg-white/70 p-6 shadow-[0_8px_40px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+          <div className="relative mx-auto max-w-lg rounded-3xl border border-slate-200/80 bg-white p-6 shadow-elevated sm:max-w-xl">
             {/* Cabin front */}
             <div className="mb-6 flex flex-col items-center">
               <div className="h-2 w-32 rounded-full bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200" />
@@ -65,6 +67,7 @@ export function SeatMapGrid({ layout, seats, selected, holdingSeatId, onSelect }
                         isSelected={selected.includes(seatId)}
                         isVip={isVipSeat(seatId, ri)}
                         isHolding={holdingSeatId === seatId}
+                        adminMode={adminMode}
                         onSelect={() => onSelect(seatId)}
                       />
                     ) : (
@@ -76,11 +79,12 @@ export function SeatMapGrid({ layout, seats, selected, holdingSeatId, onSelect }
             </div>
 
             {/* Legend */}
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-4 border-t border-slate-100 pt-6 text-[11px] text-slate-500">
-              <LegendDot className="bg-slate-100 ring-slate-200" label="Trống" />
-              <LegendDot className="bg-gradient-to-br from-indigo-500 to-indigo-600 ring-indigo-300" label="Đã chọn" />
-              <LegendDot className="bg-slate-200 ring-slate-300" label="Đã bán" />
-              <LegendDot className="bg-amber-100 ring-amber-300" label="VIP" />
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-5 border-t border-slate-100 pt-6">
+              <LegendDot className="bg-white ring-2 ring-slate-200" label="Trống" />
+              <LegendDot className="bg-gradient-to-br from-brand-500 to-brand-700 ring-brand-300" label="Đang chọn" />
+              <LegendDot className="bg-slate-200 ring-slate-300" label="Đã đặt" />
+              <LegendDot className="bg-red-100 ring-red-300" label="Bị khóa" />
+              <LegendDot className="bg-amber-50 ring-amber-300" label="VIP" />
             </div>
           </div>
         </div>
@@ -104,6 +108,7 @@ function LuxurySeat({
   isSelected,
   isVip,
   isHolding,
+  adminMode,
   onSelect,
 }: {
   seatId: string;
@@ -111,16 +116,19 @@ function LuxurySeat({
   isSelected: boolean;
   isVip: boolean;
   isHolding: boolean;
+  adminMode?: boolean;
   onSelect: () => void;
 }) {
-  const available = isSelectable(status);
-  const occupied = status === 'BOOKED' || status === 'BLOCKED';
+  const available = isSelectable(status, adminMode);
+  const blocked = status === 'BLOCKED';
+  const booked = status === 'BOOKED';
+  const occupied = booked || (blocked && !adminMode);
   const held = status === 'HELD' && !isSelected;
 
   return (
     <motion.button
       type="button"
-      disabled={!available || isHolding}
+      disabled={(!available && !isSelected) || isHolding}
       onClick={onSelect}
       whileHover={available && !isSelected ? { scale: 1.06, y: -2 } : undefined}
       whileTap={available ? { scale: 0.95 } : undefined}
@@ -132,8 +140,10 @@ function LuxurySeat({
         'group relative flex h-[52px] w-11 flex-col items-center justify-center rounded-2xl text-[10px] font-bold transition-all duration-200',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:ring-offset-2',
         isSelected
-          ? 'bg-gradient-to-br from-indigo-500 to-indigo-600 text-white shadow-[0_4px_20px_rgba(79,70,229,0.45)] ring-2 ring-indigo-300/50'
-          : occupied
+          ? 'bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-[0_4px_20px_rgba(0,102,255,0.4)] ring-2 ring-brand-300/50'
+          : blocked && !isSelected
+            ? 'cursor-pointer bg-red-100 text-red-700 ring-2 ring-red-300/80'
+            : occupied
             ? 'cursor-not-allowed bg-slate-200/80 text-slate-400'
             : held
               ? 'cursor-not-allowed bg-amber-50 text-amber-600 ring-1 ring-amber-200'

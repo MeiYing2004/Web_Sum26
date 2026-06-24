@@ -4,7 +4,7 @@ COPY package.json ./
 COPY packages ./packages
 COPY services/auth-service ./services/auth-service
 RUN npm install
-RUN cd services/auth-service && npx prisma generate && npx tsc
+RUN cd services/auth-service && npm run build
 
 FROM node:20-alpine
 WORKDIR /app/services/auth-service
@@ -14,4 +14,4 @@ COPY --from=builder /app/services/auth-service/dist ./dist
 COPY --from=builder /app/services/auth-service/prisma ./prisma
 COPY --from=builder /app/services/auth-service/package.json ./
 ENV NODE_PATH=/app/node_modules
-CMD ["sh", "-c", "npx prisma db push && node dist/index.js"]
+CMD ["sh", "-c", "node dist/bootstrap.js && npx prisma db push && node dist/index.js"]

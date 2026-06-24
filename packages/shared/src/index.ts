@@ -1,3 +1,7 @@
+export * from './roles';
+export * from './trip-availability';
+export * from './datetime';
+export * from './locations';
 export * from './constants';
 export * from './kafka';
 export * from './redis-seats';

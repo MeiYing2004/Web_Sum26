@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../src/generated/client"
 }
 
 datasource db {
@@ -7,11 +8,29 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Single account table for all roles (admin / employee / customer).
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  fullName     String
-  role         String   @default("CUSTOMER")
-  createdAt    DateTime @default(now())
+  id              String           @id @default(cuid())
+  email           String           @unique
+  passwordHash    String           @map("password_hash")
+  fullName        String           @map("full_name")
+  role            String           @default("customer")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @default(now()) @updatedAt @map("updated_at")
+  savedPassengers SavedPassenger[]
+
+  @@map("users")
+}
+
+model SavedPassenger {
+  id       String  @id @default(cuid())
+  userId   String  @map("user_id")
+  fullName String  @map("full_name")
+  phone    String
+  email    String
+  idNumber String? @map("id_number")
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("saved_passengers")
 }

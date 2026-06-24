@@ -4,5 +4,5 @@ COPY package.json ./
 COPY packages ./packages
 COPY services/ai-service ./services/ai-service
 RUN npm install
-EXPOSE 50060
+EXPOSE 8765
 CMD ["npx", "tsx", "services/ai-service/src/index.ts"]

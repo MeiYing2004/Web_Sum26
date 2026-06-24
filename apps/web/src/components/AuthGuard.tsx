@@ -3,14 +3,16 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { isAdmin, isStaffRole } from '@/lib/roles';
 
 type Props = {
   children: React.ReactNode;
   requireAuth?: boolean;
   requireAdmin?: boolean;
+  requireStaff?: boolean;
 };
 
-export default function AuthGuard({ children, requireAuth, requireAdmin }: Props) {
+export default function AuthGuard({ children, requireAuth, requireAdmin, requireStaff }: Props) {
   const { isLoggedIn, role, loading } = useAuth();
   const router = useRouter();
 
@@ -21,10 +23,14 @@ export default function AuthGuard({ children, requireAuth, requireAdmin }: Props
       router.replace(`/login?returnTo=${returnTo}`);
       return;
     }
-    if (requireAdmin && role !== 'ADMIN') {
+    if (requireAdmin && !isAdmin(role)) {
+      router.replace('/');
+      return;
+    }
+    if (requireStaff && !isStaffRole(role)) {
       router.replace('/');
     }
-  }, [loading, isLoggedIn, role, requireAuth, requireAdmin, router]);
+  }, [loading, isLoggedIn, role, requireAuth, requireAdmin, requireStaff, router]);
 
   if (loading) {
     return (
@@ -37,7 +43,8 @@ export default function AuthGuard({ children, requireAuth, requireAdmin }: Props
   }
 
   if (requireAuth && !isLoggedIn) return null;
-  if (requireAdmin && role !== 'ADMIN') return null;
+  if (requireAdmin && !isAdmin(role)) return null;
+  if (requireStaff && !isStaffRole(role)) return null;
 
   return <>{children}</>;
 }

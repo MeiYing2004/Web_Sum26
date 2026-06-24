@@ -8,17 +8,34 @@ datasource db {
 }
 
 model Ticket {
-  id           String   @id @default(cuid())
-  bookingId    String
-  bookingCode  String
-  passengerName String
-  seatId       String
-  routeName    String
-  pickupPoint  String
-  dropoffPoint String
-  departureTime String
-  busPlate     String
-  qrCode       String
-  htmlContent  String
-  createdAt    DateTime @default(now())
+  id              String   @id @default(cuid())
+  ticketCode      String   @unique
+  bookingId       String
+  bookingCode     String
+  tripId          String   @default("")
+  userId          String?
+  passengerName   String
+  passengerPhone  String   @default("")
+  passengerEmail  String   @default("")
+  seatId          String
+  routeName       String
+  origin          String   @default("")
+  destination     String   @default("")
+  operatorName    String   @default("")
+  pickupPoint     String
+  dropoffPoint    String
+  departureTime   String
+  busPlate        String   @default("")
+  totalAmount     Float    @default(0)
+  paymentStatus   String   @default("PAID")
+  bookingStatus   String   @default("TICKET_ISSUED")
+  qrCode          String
+  htmlContent     String   @default("")
+  createdAt       DateTime @default(now())
+
+  @@index([bookingId])
+  @@index([bookingCode])
+  @@index([userId])
+  @@index([passengerPhone])
+  @@index([passengerEmail])
 }

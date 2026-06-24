@@ -7,7 +7,7 @@ const path = require('path');
 
 const SERVICES = {
   ai: {
-    port: process.env.PORT || '50060',
+    port: process.env.PORT || '8765',
     dockerService: 'ai-service',
     dockerMatch: 'ai-service',
     workspace: '@bus/ai-service',

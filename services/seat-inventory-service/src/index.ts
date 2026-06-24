@@ -5,6 +5,7 @@ import {
   holdSeatsInRedis,
   releaseSeatInRedis,
   confirmSeatsInRedis,
+  unbookSeatsInRedis,
   getSeatStatuses,
   SEAT_HOLD_TTL_SECONDS,
   REDIS_KEYS,
@@ -154,6 +155,25 @@ const seatServiceImpl = {
         await redis.srem(key, ...seat_ids);
       }
       callback(null, { success: true });
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  UnbookSeats: async (
+    call: grpc.ServerUnaryCall<{ trip_id: string; seat_ids: string[] }, unknown>,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const { trip_id, seat_ids } = call.request;
+      const result = await unbookSeatsInRedis(redis, trip_id, seat_ids);
+      logEvent(logger, 'unbookSeats', {
+        requestId: getGrpcRequestId(call),
+        tripId: trip_id,
+        seatIds: seat_ids,
+        success: result.success,
+      });
+      callback(null, { success: result.success, message: result.message });
     } catch (err) {
       callback(err as grpc.ServiceError, null);
     }

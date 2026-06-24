@@ -55,11 +55,27 @@ export const SEAT_STATUS = {
 
 export type SeatStatus = (typeof SEAT_STATUS)[keyof typeof SEAT_STATUS];
 
+export const TRIP_STATUS = {
+  ACTIVE: 'ACTIVE',
+  INACTIVE: 'INACTIVE',
+  DEPARTED: 'DEPARTED',
+  COMPLETED: 'COMPLETED',
+  CANCELLED: 'CANCELLED',
+} as const;
+
+export type TripStatus = (typeof TRIP_STATUS)[keyof typeof TRIP_STATUS];
+
+export const VALID_TRIP_STATUSES = Object.values(TRIP_STATUS);
+
+export function isValidTripStatus(status: string): status is TripStatus {
+  return VALID_TRIP_STATUSES.includes(status as TripStatus);
+}
+
 export const VALID_BOOKING_TRANSITIONS: Record<string, string[]> = {
   DRAFT: ['PENDING_PAYMENT'],
   PENDING_PAYMENT: ['PAID', 'EXPIRED'],
   PAID: ['TICKET_ISSUED', 'CANCELLED'],
-  TICKET_ISSUED: ['CHECKED_IN'],
+  TICKET_ISSUED: ['CHECKED_IN', 'CANCELLED'],
   CHECKED_IN: ['COMPLETED'],
 };
 

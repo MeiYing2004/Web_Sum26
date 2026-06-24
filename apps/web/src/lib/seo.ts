@@ -31,13 +31,27 @@ export function buildRouteSlug(origin: string, destination: string, date: string
 export function parseRouteSlug(slug: string): { origin: string; destination: string; date: string } | null {
   const m = slug.match(/^ve-xe-(.+)-di-(.+)-ngay-(\d{2})-(\d{2})$/);
   if (!m) return null;
-  const year = new Date().getFullYear();
   const [, originSlug, destSlug, day, month] = m;
+  const today = todayVN();
+  const [refY] = today.split('-').map(Number);
+  let year = refY;
+  const candidate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  if (candidate < addDaysVN(today, -30)) year += 1;
   return {
     origin: unslugifyLocation(originSlug),
     destination: unslugifyLocation(destSlug),
-    date: `${year}-${month}-${day}`,
+    date: `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`,
   };
+}
+
+function todayVN(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+}
+
+function addDaysVN(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, d + days, 12, 0, 0));
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(utc);
 }
 
 export function buildSeoTitle(origin: string, destination: string, date: string) {

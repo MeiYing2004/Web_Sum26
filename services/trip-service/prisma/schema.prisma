@@ -51,15 +51,23 @@ model Bus {
   trips          Trip[]
 }
 
+enum TripStatus {
+  ACTIVE
+  INACTIVE
+  DEPARTED
+  COMPLETED
+  CANCELLED
+}
+
 model Trip {
-  id              String   @id @default(cuid())
+  id              String     @id @default(cuid())
   routeId         String
   busId           String
   operatorId      String
   departureTime   DateTime
   arrivalTime     DateTime
   price           Float
-  status          String   @default("ACTIVE")
+  status          TripStatus @default(ACTIVE)
   pickupPoint     String
   dropoffPoint    String
   cancellationPolicy String @default("Hủy trước 24h được hoàn 80%")

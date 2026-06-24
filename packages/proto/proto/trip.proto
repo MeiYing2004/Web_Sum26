@@ -9,6 +9,36 @@ service TripService {
   rpc GetTripDetail(GetTripDetailRequest) returns (TripDetail);
   rpc AutocompleteLocations(AutocompleteRequest) returns (AutocompleteResponse);
   rpc SuggestNearestDate(SuggestNearestDateRequest) returns (SuggestNearestDateResponse);
+  rpc CountActiveTrips(CountActiveTripsRequest) returns (CountActiveTripsResponse);
+  rpc GetRouteCatalog(GetRouteCatalogRequest) returns (GetRouteCatalogResponse);
+
+  // Admin CRUD — Routes
+  rpc GetRoutes(GetRoutesRequest) returns (GetRoutesResponse);
+  rpc GetRouteById(GetRouteByIdRequest) returns (RouteItem);
+  rpc CreateRoute(CreateRouteRequest) returns (RouteItem);
+  rpc UpdateRoute(UpdateRouteRequest) returns (RouteItem);
+  rpc DeleteRoute(DeleteRouteRequest) returns (DeleteSuccessResponse);
+
+  // Admin CRUD — Stops
+  rpc GetStops(GetStopsRequest) returns (GetStopsResponse);
+  rpc CreateStop(CreateStopRequest) returns (StopItem);
+  rpc UpdateStop(UpdateStopRequest) returns (StopItem);
+  rpc DeleteStop(DeleteStopRequest) returns (DeleteSuccessResponse);
+
+  // Admin CRUD — Buses
+  rpc GetBuses(GetBusesRequest) returns (GetBusesResponse);
+  rpc CreateBus(CreateBusRequest) returns (BusItem);
+  rpc UpdateBus(UpdateBusRequest) returns (BusItem);
+  rpc DeleteBus(DeleteBusRequest) returns (DeleteSuccessResponse);
+
+  // Admin CRUD — Trips
+  rpc GetTripsAdmin(GetTripsAdminRequest) returns (GetTripsAdminResponse);
+  rpc CreateTrip(CreateTripRequest) returns (AdminTripItem);
+  rpc UpdateTrip(UpdateTripRequest) returns (AdminTripItem);
+  rpc DeleteTrip(DeleteTripRequest) returns (DeleteSuccessResponse);
+
+  // Admin helpers
+  rpc GetOperators(GetOperatorsRequest) returns (GetOperatorsResponse);
 }
 
 message SearchTripsRequest {
@@ -37,6 +67,9 @@ message TripSummary {
   double price = 9;
   int32 available_seats = 10;
   int32 duration_minutes = 11;
+  bool bookable = 12;
+  string availability_status = 13;
+  string availability_label = 14;
 }
 
 message SearchTripsResponse {
@@ -88,4 +121,251 @@ message SuggestNearestDateRequest {
 
 message SuggestNearestDateResponse {
   optional string nearest_date = 1;
+}
+
+message CountActiveTripsRequest {}
+
+message CountActiveTripsResponse {
+  int32 count = 1;
+}
+
+message GetRouteCatalogRequest {
+  string travel_date = 1;
+  optional int32 limit = 2;
+}
+
+message RouteCatalogRoute {
+  string origin = 1;
+  string destination = 2;
+  int32 trips_count = 3;
+  double min_price = 4;
+  int32 duration_minutes = 5;
+  string next_departure_time = 6;
+}
+
+message GetRouteCatalogResponse {
+  repeated string locations = 1;
+  repeated RouteCatalogRoute routes = 2;
+}
+
+// ─── Admin shared ───────────────────────────────────────────
+
+message DeleteSuccessResponse {
+  bool success = 1;
+}
+
+// ─── Routes ─────────────────────────────────────────────────
+
+message RouteStopItem {
+  string id = 1;
+  string name = 2;
+  int32 order = 3;
+}
+
+message RouteItem {
+  string id = 1;
+  string name = 2;
+  string origin = 3;
+  string destination = 4;
+  repeated RouteStopItem stops = 5;
+  string created_at = 6;
+}
+
+message GetRoutesRequest {
+  optional string search = 1;
+  optional int32 page = 2;
+  optional int32 page_size = 3;
+}
+
+message GetRoutesResponse {
+  repeated RouteItem routes = 1;
+  int32 total = 2;
+}
+
+message GetRouteByIdRequest {
+  string route_id = 1;
+}
+
+message CreateRouteRequest {
+  string name = 1;
+  string origin = 2;
+  string destination = 3;
+}
+
+message UpdateRouteRequest {
+  string route_id = 1;
+  string name = 2;
+  string origin = 3;
+  string destination = 4;
+}
+
+message DeleteRouteRequest {
+  string route_id = 1;
+}
+
+// ─── Stops ──────────────────────────────────────────────────
+
+message StopItem {
+  string id = 1;
+  string route_id = 2;
+  string route_name = 3;
+  string name = 4;
+  int32 order = 5;
+}
+
+message GetStopsRequest {
+  optional string route_id = 1;
+  optional string search = 2;
+  optional int32 page = 3;
+  optional int32 page_size = 4;
+}
+
+message GetStopsResponse {
+  repeated StopItem stops = 1;
+  int32 total = 2;
+}
+
+message CreateStopRequest {
+  string route_id = 1;
+  string name = 2;
+  int32 order = 3;
+}
+
+message UpdateStopRequest {
+  string stop_id = 1;
+  string name = 2;
+  int32 order = 3;
+}
+
+message DeleteStopRequest {
+  string stop_id = 1;
+}
+
+// ─── Buses ──────────────────────────────────────────────────
+
+message BusItem {
+  string id = 1;
+  string plate = 2;
+  string bus_type = 3;
+  int32 seat_count = 4;
+  string layout_type = 5;
+  string seat_layout_json = 6;
+  string operator_id = 7;
+  string operator_name = 8;
+}
+
+message GetBusesRequest {
+  optional string search = 1;
+  optional string operator_id = 2;
+  optional int32 page = 3;
+  optional int32 page_size = 4;
+}
+
+message GetBusesResponse {
+  repeated BusItem buses = 1;
+  int32 total = 2;
+}
+
+message CreateBusRequest {
+  string plate = 1;
+  string bus_type = 2;
+  int32 seat_count = 3;
+  string layout_type = 4;
+  string operator_id = 5;
+  optional string seat_layout_json = 6;
+}
+
+message UpdateBusRequest {
+  string bus_id = 1;
+  string plate = 2;
+  string bus_type = 3;
+  int32 seat_count = 4;
+  string layout_type = 5;
+  string operator_id = 6;
+  optional string seat_layout_json = 7;
+}
+
+message DeleteBusRequest {
+  string bus_id = 1;
+}
+
+// ─── Trips (admin) ──────────────────────────────────────────
+
+message AdminTripItem {
+  string id = 1;
+  string route_id = 2;
+  string route_name = 3;
+  string origin = 4;
+  string destination = 5;
+  string bus_id = 6;
+  string bus_plate = 7;
+  string bus_type = 8;
+  string operator_id = 9;
+  string operator_name = 10;
+  string departure_time = 11;
+  string arrival_time = 12;
+  double price = 13;
+  string status = 14;
+  string pickup_point = 15;
+  string dropoff_point = 16;
+  string cancellation_policy = 17;
+}
+
+message GetTripsAdminRequest {
+  optional string route_id = 1;
+  optional string status = 2;
+  optional string search = 3;
+  optional string from_date = 4;
+  optional string to_date = 5;
+  optional int32 page = 6;
+  optional int32 page_size = 7;
+}
+
+message GetTripsAdminResponse {
+  repeated AdminTripItem trips = 1;
+  int32 total = 2;
+}
+
+message CreateTripRequest {
+  string route_id = 1;
+  string bus_id = 2;
+  string operator_id = 3;
+  string departure_time = 4;
+  string arrival_time = 5;
+  double price = 6;
+  string pickup_point = 7;
+  string dropoff_point = 8;
+  optional string cancellation_policy = 9;
+  optional string status = 10;
+}
+
+message UpdateTripRequest {
+  string trip_id = 1;
+  optional string route_id = 2;
+  optional string bus_id = 3;
+  optional string operator_id = 4;
+  optional string departure_time = 5;
+  optional string arrival_time = 6;
+  optional double price = 7;
+  optional string pickup_point = 8;
+  optional string dropoff_point = 9;
+  optional string cancellation_policy = 10;
+  optional string status = 11;
+}
+
+message DeleteTripRequest {
+  string trip_id = 1;
+}
+
+// ─── Operators (read-only helper) ───────────────────────────
+
+message OperatorItem {
+  string id = 1;
+  string name = 2;
+}
+
+message GetOperatorsRequest {}
+
+message GetOperatorsResponse {
+  repeated OperatorItem operators = 1;
 }

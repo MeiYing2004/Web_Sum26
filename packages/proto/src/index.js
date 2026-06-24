@@ -26,6 +26,7 @@ const bookingProto = loadProto('booking.proto');
 const paymentProto = loadProto('payment.proto');
 const authProto = loadProto('auth.proto');
 const analyticsProto = loadProto('analytics.proto');
+const ticketProto = loadProto('ticket.proto');
 
 module.exports = {
   tripProto,
@@ -34,10 +35,12 @@ module.exports = {
   paymentProto,
   authProto,
   analyticsProto,
+  ticketProto,
   TripService: tripProto.bus.trip.v1.TripService,
   SeatInventoryService: seatProto.bus.seat.v1.SeatInventoryService,
   BookingService: bookingProto.bus.booking.v1.BookingService,
   PaymentService: paymentProto.bus.payment.v1.PaymentService,
   AuthService: authProto.bus.auth.v1.AuthService,
   AnalyticsService: analyticsProto.bus.analytics.v1.AnalyticsService,
+  TicketService: ticketProto.bus.ticket.v1.TicketService,
 };

@@ -11,9 +11,12 @@ service BookingService {
   rpc CancelBooking(CancelBookingRequest) returns (CancelBookingResponse);
   rpc CheckIn(CheckInRequest) returns (CheckInResponse);
   rpc ListUserBookings(ListUserBookingsRequest) returns (ListUserBookingsResponse);
+  rpc ListBookingsByTrip(ListBookingsByTripRequest) returns (ListBookingsByTripResponse);
   rpc ExpirePendingBookings(ExpirePendingRequest) returns (ExpirePendingResponse);
   rpc ProcessPayment(ProcessPaymentRequest) returns (ProcessPaymentResponse);
   rpc MarkTicketIssued(MarkTicketIssuedRequest) returns (MarkTicketIssuedResponse);
+  rpc GetAdminInsights(GetAdminInsightsRequest) returns (GetAdminInsightsResponse);
+  rpc ListAdminEventLogs(ListAdminEventLogsRequest) returns (ListAdminEventLogsResponse);
 }
 
 message MarkTicketIssuedRequest {
@@ -76,7 +79,7 @@ message GetBookingRequest {
 
 message GetBookingByCodeRequest {
   string booking_code = 1;
-  string email = 2;
+  optional string email = 2;
 }
 
 message BookingDetail {
@@ -92,11 +95,67 @@ message BookingDetail {
   repeated PassengerInput passengers = 10;
   optional string user_id = 11;
   string created_at = 12;
+  string guest_email = 13;
+  string operator_name = 14;
+  string pickup_point = 15;
+  string dropoff_point = 16;
+  string bus_plate = 17;
+  string payment_status = 18;
+}
+
+message GetAdminInsightsRequest {
+  int32 orders_limit = 1;
+  int32 top_limit = 2;
+}
+
+message AdminRankRow {
+  string name = 1;
+  string subtitle = 2;
+  int32 count = 3;
+  double revenue = 4;
+}
+
+message AdminOrderRow {
+  string booking_code = 1;
+  string customer_name = 2;
+  string route_name = 3;
+  string origin = 4;
+  string destination = 5;
+  string seat_id = 6;
+  double total_amount = 7;
+  string status = 8;
+  string created_at = 9;
+}
+
+message GetAdminInsightsResponse {
+  int32 bookings_sold = 1;
+  repeated AdminRankRow top_routes = 2;
+  repeated AdminRankRow top_operators = 3;
+  repeated AdminRankRow top_customers = 4;
+  repeated AdminOrderRow recent_orders = 5;
 }
 
 message CancelBookingRequest {
   string booking_id = 1;
   optional string user_id = 2;
+  optional string guest_email = 3;
+}
+
+message AdminEventLogRow {
+  string id = 1;
+  string booking_id = 2;
+  string booking_code = 3;
+  string event_type = 4;
+  string detail = 5;
+  string created_at = 6;
+}
+
+message ListAdminEventLogsRequest {
+  int32 limit = 1;
+}
+
+message ListAdminEventLogsResponse {
+  repeated AdminEventLogRow events = 1;
 }
 
 message CancelBookingResponse {
@@ -117,10 +176,23 @@ message CheckInResponse {
 
 message ListUserBookingsRequest {
   string user_id = 1;
+  optional string email = 2;
 }
 
 message ListUserBookingsResponse {
   repeated BookingDetail bookings = 1;
+}
+
+message ListBookingsByTripRequest {
+  string trip_id = 1;
+  optional string search = 2;
+  optional int32 page = 3;
+  optional int32 page_size = 4;
+}
+
+message ListBookingsByTripResponse {
+  repeated BookingDetail bookings = 1;
+  int32 total = 2;
 }
 
 message ExpirePendingRequest {}

@@ -1,0 +1,6 @@
+<svg width="320" height="320" viewBox="0 0 320 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="320" height="320" rx="72" fill="#4F46E5"/>
+  <circle cx="160" cy="120" r="54" fill="#EEF2FF"/>
+  <path d="M72 232C72 191.131 105.131 158 146 158H174C214.869 158 248 191.131 248 232V248H72V232Z" fill="#C7D2FE"/>
+  <text x="94" y="292" font-family="Inter,Arial,sans-serif" font-size="36" fill="#FFFFFF" font-weight="700">BUS</text>
+</svg>

@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import Navbar from '@/components/Navbar';
 import Providers from '@/components/Providers';
 import CopyrightNotice from '@/components/CopyrightNotice';
+import CapyAI from '@/components/CapyAI';
 import './globals.css';
 
 const inter = Inter({
@@ -21,10 +22,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="vi" className={inter.variable}>
-      <body className="min-h-screen bg-[#FAFAFA] font-sans antialiased">
+      <body className="min-h-screen bg-surface font-sans text-ink antialiased">
         <Providers>
           <Navbar />
           <main>{children}</main>
+          <CapyAI />
           <CopyrightNotice />
         </Providers>
       </body>

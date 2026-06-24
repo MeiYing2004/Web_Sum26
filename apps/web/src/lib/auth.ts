@@ -1,9 +1,11 @@
+import { normalizeRole, type UserRole } from './roles';
+
 const TOKEN_KEY = 'bus_auth_token';
 const PROFILE_KEY = 'bus_user_profile';
 
 export type AuthUser = {
   userId: string;
-  role: string;
+  role: UserRole;
   email?: string;
   fullName?: string;
 };
@@ -13,13 +15,20 @@ export type UserProfile = {
   fullName: string;
 };
 
-export function decodeToken(token: string): { userId: string; role: string; exp: number } | null {
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  return atob(padded);
+}
+
+export function decodeToken(token: string): { userId: string; role: UserRole; exp: number } | null {
   try {
-    const [payload] = token.split('.');
-    if (!payload) return null;
-    const data = JSON.parse(atob(payload)) as { userId: string; role: string; exp: number };
-    if (!data.userId || !data.role || data.exp < Date.now()) return null;
-    return data;
+    const [encodedPayload] = token.split('.');
+    if (!encodedPayload) return null;
+    const data = JSON.parse(decodeBase64Url(encodedPayload)) as { userId: string; role: string; exp: number };
+    if (!data.userId || !data.role || typeof data.exp !== 'number') return null;
+    if (data.exp < Date.now()) return null;
+    return { userId: data.userId, role: normalizeRole(data.role), exp: data.exp };
   } catch {
     return null;
   }

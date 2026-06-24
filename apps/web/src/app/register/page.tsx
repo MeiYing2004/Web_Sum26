@@ -3,12 +3,22 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import { Eye, EyeOff, Loader2, Lock, Mail, User } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import AuthLayout from '@/components/AuthLayout';
+import { BrandLogo } from '@/components/BrandLogo';
+import {
+  AUTH_CARD_CLASS,
+  AUTH_FIELD_CLASS,
+  AUTH_INPUT_CLASS,
+  AUTH_PRIMARY_BTN,
+  AuthSplitLayout,
+} from '@/components/auth/AuthSplitLayout';
 import { useAuth } from '@/hooks/useAuth';
+import { formatAuthError, normalizeAuthEmail } from '@/lib/auth-errors';
 import { gql } from '@/lib/graphql';
+import { Field } from '@/components/ui/Field';
+import { Input } from '@/components/ui/Input';
+import { cn } from '@/lib/cn';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -46,147 +56,149 @@ export default function RegisterPage() {
         `mutation($email:String!,$password:String!,$fullName:String!){
           register(email:$email,password:$password,fullName:$fullName){token userId role}
         }`,
-        { email: email.trim(), password, fullName: fullName.trim() }
+        { email: normalizeAuthEmail(email), password, fullName: fullName.trim() }
       );
-      login(data.register.token, { email: email.trim(), fullName: fullName.trim() });
+      if (!data.register?.token || !data.register?.userId) {
+        throw new Error('Đăng ký thất bại — không nhận được token');
+      }
+      login(data.register.token, { email: normalizeAuthEmail(email), fullName: fullName.trim() });
       toast.success('Đăng ký thành công! Chào mừng bạn đến Cappy Bus');
       router.push('/');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Đăng ký thất bại');
+      toast.error(formatAuthError(err, 'Đăng ký thất bại'));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <AuthLayout
-      title="Tạo tài khoản mới"
-      subtitle="Đăng ký miễn phí để đặt vé và theo dõi lịch sử"
+    <AuthSplitLayout
+      headline="Tham gia Cappy Bus"
+      headlineAccent="đặt vé dễ hơn"
+      imageAlt="Đăng ký tài khoản Cappy Bus"
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <FormField label="Họ và tên" error={errors.fullName} icon={<User className="h-4 w-4" />}>
-          <input
-            value={fullName}
-            onChange={(e) => {
-              setFullName(e.target.value);
-              setErrors((p) => ({ ...p, fullName: '' }));
-            }}
-            placeholder="Nguyễn Văn A"
-            className={inputClass(!!errors.fullName)}
-          />
-        </FormField>
+      <div className={AUTH_CARD_CLASS}>
+        <div className="mb-8 text-center lg:text-left">
+          <BrandLogo href="/" showText={false} size={52} className="justify-center lg:justify-start" />
+          <h1 className="mt-5 text-[1.75rem] font-bold tracking-tight text-[#0F172A]">
+            Tạo tài khoản
+          </h1>
+          <p className="mt-2 text-[0.9375rem] leading-relaxed text-[#64748B]">
+            Đăng ký miễn phí để đặt vé và theo dõi lịch sử.
+          </p>
+        </div>
 
-        <FormField label="Email" error={errors.email} icon={<Mail className="h-4 w-4" />}>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => {
-              setEmail(e.target.value);
-              setErrors((p) => ({ ...p, email: '' }));
-            }}
-            placeholder="email@example.com"
-            className={inputClass(!!errors.email)}
-          />
-        </FormField>
-
-        <FormField label="Mật khẩu" error={errors.password} icon={<Lock className="h-4 w-4" />}>
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={password}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Field
+            label="Họ và tên"
+            htmlFor="register-name"
+            error={errors.fullName}
+            required
+            className={AUTH_FIELD_CLASS}
+          >
+            <Input
+              id="register-name"
+              value={fullName}
               onChange={(e) => {
-                setPassword(e.target.value);
-                setErrors((p) => ({ ...p, password: '' }));
+                setFullName(e.target.value);
+                setErrors((p) => ({ ...p, fullName: '' }));
               }}
-              placeholder="Tối thiểu 6 ký tự"
-              className={inputClass(!!errors.password, true)}
+              placeholder="Nguyễn Văn A"
+              autoComplete="name"
+              error={!!errors.fullName}
+              className={AUTH_INPUT_CLASS}
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          </div>
-        </FormField>
+          </Field>
 
-        <FormField
-          label="Xác nhận mật khẩu"
-          error={errors.confirmPassword}
-          icon={<Lock className="h-4 w-4" />}
-        >
-          <input
-            type={showPassword ? 'text' : 'password'}
-            value={confirmPassword}
-            onChange={(e) => {
-              setConfirmPassword(e.target.value);
-              setErrors((p) => ({ ...p, confirmPassword: '' }));
-            }}
-            placeholder="Nhập lại mật khẩu"
-            className={inputClass(!!errors.confirmPassword)}
-          />
-        </FormField>
+          <Field
+            label="Email"
+            htmlFor="register-email"
+            error={errors.email}
+            required
+            className={AUTH_FIELD_CLASS}
+          >
+            <Input
+              id="register-email"
+              type="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setErrors((p) => ({ ...p, email: '' }));
+              }}
+              placeholder="Nhập email của bạn"
+              autoComplete="email"
+              error={!!errors.email}
+              className={AUTH_INPUT_CLASS}
+            />
+          </Field>
 
-        <motion.button
-          type="submit"
-          disabled={loading}
-          whileHover={{ scale: loading ? 1 : 1.01 }}
-          whileTap={{ scale: loading ? 1 : 0.99 }}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3 font-semibold text-white shadow-md transition-all duration-200 hover:shadow-lg disabled:opacity-60"
-        >
-          {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
-          {loading ? 'Đang đăng ký...' : 'Đăng ký'}
-        </motion.button>
+          <Field
+            label="Mật khẩu"
+            htmlFor="register-password"
+            error={errors.password}
+            required
+            className={AUTH_FIELD_CLASS}
+          >
+            <div className="relative">
+              <Input
+                id="register-password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setErrors((p) => ({ ...p, password: '' }));
+                }}
+                placeholder="Tối thiểu 6 ký tự"
+                autoComplete="new-password"
+                error={!!errors.password}
+                className={cn(AUTH_INPUT_CLASS, 'pr-11')}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-[#94A3B8] transition-colors hover:text-[#0F172A]"
+                aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </Field>
 
-        <p className="text-center text-sm text-gray-500">
+          <Field
+            label="Xác nhận mật khẩu"
+            htmlFor="register-confirm"
+            error={errors.confirmPassword}
+            required
+            className={AUTH_FIELD_CLASS}
+          >
+            <Input
+              id="register-confirm"
+              type={showPassword ? 'text' : 'password'}
+              value={confirmPassword}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                setErrors((p) => ({ ...p, confirmPassword: '' }));
+              }}
+              placeholder="Nhập lại mật khẩu"
+              autoComplete="new-password"
+              error={!!errors.confirmPassword}
+              className={AUTH_INPUT_CLASS}
+            />
+          </Field>
+
+          <button type="submit" disabled={loading} className={cn(AUTH_PRIMARY_BTN, 'mt-2')}>
+            {loading && <Loader2 className="h-5 w-5 animate-spin" />}
+            {loading ? 'Đang đăng ký...' : 'Đăng ký'}
+          </button>
+        </form>
+
+        <div className="mt-8 border-t border-[#E2E8F0] pt-6 text-center text-sm text-[#64748B]">
           Đã có tài khoản?{' '}
-          <Link href="/login" className="font-semibold text-blue-600 hover:underline">
+          <Link href="/login" className="font-semibold text-[#2563EB] transition-colors hover:text-[#1D4ED8]">
             Đăng nhập
           </Link>
-        </p>
-      </form>
-    </AuthLayout>
-  );
-}
-
-function FormField({
-  label,
-  error,
-  icon,
-  children,
-}: {
-  label: string;
-  error?: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label className="mb-1.5 block text-sm font-medium text-gray-700">{label}</label>
-      <div className="relative">
-        <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-          {icon}
-        </span>
-        {children}
+        </div>
       </div>
-      {error && (
-        <motion.p
-          initial={{ opacity: 0, y: -4 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-1.5 text-xs font-medium text-red-500"
-        >
-          {error}
-        </motion.p>
-      )}
-    </div>
+    </AuthSplitLayout>
   );
-}
-
-function inputClass(hasError: boolean, withRightPad?: boolean) {
-  return `w-full rounded-xl border py-3 pl-10 ${withRightPad ? 'pr-10' : 'pr-4'} text-gray-900 outline-none transition-all duration-200 placeholder:text-gray-400 focus:ring-2 ${
-    hasError
-      ? 'border-red-300 focus:border-red-400 focus:ring-red-500/20'
-      : 'border-gray-200 focus:border-blue-500 focus:ring-blue-500/20'
-  }`;
 }

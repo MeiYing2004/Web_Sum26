@@ -49,6 +49,26 @@ async function startKafkaConsumer() {
             amount: event.amount,
           },
         });
+
+        if (event.eventType === 'booking.paid') {
+          const routeName = String(event.routeName || 'Khác');
+          const ticketCount = Number(event.ticketCount) || 1;
+          const amount = Number(event.amount) || 0;
+          const existing = await prisma.routeTicketStat.findFirst({ where: { routeName } });
+          if (existing) {
+            await prisma.routeTicketStat.update({
+              where: { id: existing.id },
+              data: {
+                ticketsSold: { increment: ticketCount },
+                revenue: { increment: amount },
+              },
+            });
+          } else {
+            await prisma.routeTicketStat.create({
+              data: { routeName, ticketsSold: ticketCount, revenue: amount },
+            });
+          }
+        }
       }
 
       if (topic === KAFKA_TOPICS.PAYMENT_EVENTS && event.eventType === 'payment.success') {

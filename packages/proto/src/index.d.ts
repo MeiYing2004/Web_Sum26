@@ -12,4 +12,5 @@ declare module '@bus/proto' {
   export const PaymentService: GrpcService;
   export const AuthService: GrpcService;
   export const AnalyticsService: GrpcService;
+  export const TicketService: GrpcService;
 }

@@ -8,6 +8,8 @@ service AuthService {
   rpc Login(LoginRequest) returns (LoginResponse);
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  rpc GetSavedPassengers(GetSavedPassengersRequest) returns (GetSavedPassengersResponse);
+  rpc CountCustomers(CountCustomersRequest) returns (CountCustomersResponse);
 }
 
 message LoginRequest {
@@ -30,6 +32,7 @@ message RegisterRequest {
 message RegisterResponse {
   string user_id = 1;
   string token = 2;
+  string role = 3;
 }
 
 message ValidateTokenRequest {
@@ -40,4 +43,26 @@ message ValidateTokenResponse {
   bool valid = 1;
   string user_id = 2;
   string role = 3;
+}
+
+message GetSavedPassengersRequest {
+  string user_id = 1;
+}
+
+message SavedPassengerMessage {
+  string id = 1;
+  string full_name = 2;
+  string phone = 3;
+  string email = 4;
+  string id_number = 5;
+}
+
+message GetSavedPassengersResponse {
+  repeated SavedPassengerMessage passengers = 1;
+}
+
+message CountCustomersRequest {}
+
+message CountCustomersResponse {
+  int32 count = 1;
 }
