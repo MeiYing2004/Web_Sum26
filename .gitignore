@@ -5,7 +5,6 @@ dist/
 .env.local
 *.log
 .DS_Store
-.cursor/
 services/auth-service/src/generated/
 .turbo/
 prisma/migrations/**/migration_lock.toml

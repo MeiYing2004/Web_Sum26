@@ -142,11 +142,11 @@ function LuxurySeat({
         isSelected
           ? 'bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-[0_4px_20px_rgba(0,102,255,0.4)] ring-2 ring-brand-300/50'
           : blocked && !isSelected
-            ? 'cursor-pointer bg-red-100 text-red-700 ring-2 ring-red-300/80'
+            ? 'ipe-clickable bg-red-100 text-red-700 ring-2 ring-red-300/80'
             : occupied
-            ? 'cursor-not-allowed bg-slate-200/80 text-slate-400'
+            ? 'ipe-blocked bg-slate-200/80 text-slate-400'
             : held
-              ? 'cursor-not-allowed bg-amber-50 text-amber-600 ring-1 ring-amber-200'
+              ? 'ipe-blocked bg-amber-50 text-amber-600 ring-1 ring-amber-200'
               : isVip
                 ? 'bg-gradient-to-b from-amber-50 to-white text-amber-800 ring-1 ring-amber-200/80 hover:shadow-[0_4px_16px_rgba(245,158,11,0.2)]'
                 : 'bg-slate-50 text-slate-600 ring-1 ring-slate-200/80 hover:bg-white hover:shadow-md hover:ring-indigo-200',

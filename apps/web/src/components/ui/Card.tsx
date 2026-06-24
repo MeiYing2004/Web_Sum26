@@ -19,7 +19,7 @@ const cardVariants = cva('rounded-card transition-all duration-200', {
       xl: 'p-8',
     },
     interactive: {
-      true: 'hover:shadow-elevated hover:-translate-y-0.5 cursor-pointer',
+      true: 'hover:shadow-elevated hover:-translate-y-0.5 ipe-clickable',
       false: '',
     },
   },

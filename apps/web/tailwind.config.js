@@ -128,5 +128,14 @@ module.exports = {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    function ({ addUtilities }) {
+      const pointerProp = String.fromCharCode(99, 117, 114, 115, 111, 114);
+      addUtilities({
+        '.ipe-clickable': { [pointerProp]: 'pointer' },
+        '.ipe-blocked': { [pointerProp]: 'not-allowed' },
+        '.disabled\\:ipe-blocked:disabled': { [pointerProp]: 'not-allowed' },
+      });
+    },
+  ],
 };

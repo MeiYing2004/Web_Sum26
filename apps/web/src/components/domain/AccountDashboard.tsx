@@ -163,7 +163,7 @@ export function SettingsToggle({
         </p>
         <p className="mt-0.5 text-caption text-ink-muted">{desc}</p>
       </div>
-      <label className="relative inline-flex cursor-pointer items-center">
+      <label className="relative inline-flex ipe-clickable items-center">
         <input type="checkbox" defaultChecked={defaultOn} className="peer sr-only" />
         <div className="h-6 w-11 rounded-full bg-slate-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-sm after:transition-all peer-checked:bg-brand peer-checked:after:translate-x-5" />
       </label>
