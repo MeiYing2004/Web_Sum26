@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -20,6 +20,9 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { gql } from '@/lib/graphql';
+import { useAuth } from '@/hooks/useAuth';
+import { saveBookingSuccess, buildSuccessPageUrl } from '@/lib/booking-success';
+import { computeBookingPricing, computePricingFromTicketTotal } from '@/lib/booking-pricing';
 import { SavedPassengerPicker } from '@/components/domain/SavedPassengerPicker';
 import { BookingProgress } from '@/components/domain/BookingProgress';
 import { Card, CardHeader } from '@/components/ui/Card';
@@ -37,6 +40,28 @@ const PAYMENT_METHODS = [
   { id: 'bank' as const, label: 'Chuyển khoản', icon: Building2, desc: 'Ngân hàng nội địa' },
   { id: 'wallet' as const, label: 'Ví điện tử', icon: Wallet, desc: 'MoMo, ShopeePay' },
 ] as const;
+
+type TripDraftSummary = {
+  origin: string;
+  destination: string;
+  routeName?: string;
+  departureTime: string;
+  operatorName: string;
+  busType: string;
+  pricePerSeat: number;
+};
+
+function readDraftTripSummary(): TripDraftSummary | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem('bookingDraft');
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as { tripSummary?: TripDraftSummary };
+    return draft.tripSummary ?? null;
+  } catch {
+    return null;
+  }
+}
 
 function readDraft(seats: string[]) {
   const defaults = seats.map((s) => ({ fullName: '', phone: '', email: '', seatId: s }));
@@ -57,6 +82,7 @@ function readDraft(seats: string[]) {
 function BookingForm() {
   const params = useSearchParams();
   const router = useRouter();
+  const { isLoggedIn } = useAuth();
   const tripId = params.get('tripId') || '';
   const holdToken = params.get('holdToken') || '';
   const seats = (params.get('seats') || '').split(',').filter(Boolean);
@@ -66,12 +92,23 @@ function BookingForm() {
   const [passengers, setPassengers] = useState<Passenger[]>(initialDraft.passengers);
   const [guestEmail, setGuestEmail] = useState(initialDraft.guestEmail);
   const [bookingId, setBookingId] = useState('');
+  const [bookingTotalAmount, setBookingTotalAmount] = useState(0);
   const [step, setStep] = useState<'form' | 'payment'>('form');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('qr');
   const [activePromoCode, setActivePromoCode] = useState(promoFromQuery || '');
   const [submitting, setSubmitting] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [autoSkippedForm, setAutoSkippedForm] = useState(false);
   const missingParams = !tripId || !holdToken || seats.length === 0;
+
+  const passengersReady = useMemo(() => {
+    const email = guestEmail.trim() || passengers[0]?.email?.trim() || '';
+    return (
+      !!email &&
+      passengers.length === seats.length &&
+      passengers.every((p) => p.fullName.trim() && p.phone.trim() && p.email.trim())
+    );
+  }, [guestEmail, passengers, seats.length]);
 
   useEffect(() => {
     const draft = readDraft(seats);
@@ -88,6 +125,12 @@ function BookingForm() {
     const saved = sessionStorage.getItem('activePromoCode') || '';
     if (saved) setActivePromoCode(saved.toUpperCase());
   }, [promoFromQuery]);
+
+  useEffect(() => {
+    if (missingParams || !passengersReady || step !== 'form' || bookingId || autoSkippedForm) return;
+    setAutoSkippedForm(true);
+    void submitBooking();
+  }, [missingParams, passengersReady, step, bookingId, autoSkippedForm]);
 
   async function submitBooking() {
     if (!tripId || !holdToken) {
@@ -117,10 +160,12 @@ function BookingForm() {
         { tripId, holdToken, passengers, guestEmail: email }
       );
       setBookingId(data.createBooking.bookingId);
+      setBookingTotalAmount(data.createBooking.totalAmount);
       setStep('payment');
       toast.success('Đã tạo đơn đặt vé — vui lòng thanh toán');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Không thể tạo booking');
+      setAutoSkippedForm(false);
     } finally {
       setSubmitting(false);
     }
@@ -141,6 +186,7 @@ function BookingForm() {
         { bookingId, simulateSuccess: success }
       );
       if (data.processPayment.success) {
+        const tripSummary = readDraftTripSummary();
         sessionStorage.removeItem('bookingDraft');
         const code = data.processPayment.bookingCode;
         if (!code) {
@@ -148,7 +194,38 @@ function BookingForm() {
           return;
         }
         toast.success('Thanh toán thành công!');
-        router.replace('/my-tickets');
+        if (isLoggedIn) {
+          router.replace('/my-tickets');
+          return;
+        }
+        const email = guestEmail.trim() || passengers[0]?.email?.trim() || '';
+        const pricing = tripSummary?.pricePerSeat
+          ? computeBookingPricing(seats.length, tripSummary.pricePerSeat)
+          : computePricingFromTicketTotal(bookingTotalAmount);
+        const successPayload = {
+          bookingCode: code,
+          guestEmail: email,
+          passengers: passengers.map((p) => ({ fullName: p.fullName.trim(), seatId: p.seatId })),
+          seats,
+          totalAmount: pricing.grandTotal,
+          ticketTotal: pricing.ticketTotal,
+          serviceFee: pricing.serviceFee,
+          paymentStatus: 'PAID',
+          ...(tripSummary
+            ? {
+                trip: {
+                  origin: tripSummary.origin,
+                  destination: tripSummary.destination,
+                  routeName: tripSummary.routeName,
+                  departureTime: tripSummary.departureTime,
+                  operatorName: tripSummary.operatorName,
+                  busType: tripSummary.busType,
+                },
+              }
+            : {}),
+        };
+        saveBookingSuccess(successPayload);
+        router.replace(buildSuccessPageUrl(successPayload));
       } else {
         toast.error(data.processPayment.message);
       }
@@ -182,7 +259,7 @@ function BookingForm() {
   return (
     <div className="mesh-bg min-h-screen">
       <div className="page-section page-container max-w-6xl">
-        <BookingProgress current={step === 'form' ? 'payment' : 'payment'} className="mb-8" />
+        <BookingProgress current="payment" className="mb-8" />
 
         <div className="mb-6">
           <h1 className="text-display text-ink">Thanh toán đặt vé</h1>
@@ -201,86 +278,95 @@ function BookingForm() {
           <div>
             {step === 'form' && (
               <div className="space-y-5">
-                <Card variant="solid" padding="md" className="rounded-2xl">
-                  <Field label="Email nhận vé" htmlFor="guestEmail" required>
-                    <Input
-                      id="guestEmail"
-                      placeholder="email@example.com"
-                      value={guestEmail}
-                      onChange={(e) => setGuestEmail(e.target.value)}
-                      className="h-11"
-                    />
-                  </Field>
-                </Card>
-
-                {passengers.map((p, i) => (
-                  <Card key={p.seatId} variant="solid" padding="md" className="rounded-2xl">
-                    <CardHeader
-                      title={`Hành khách — Ghế ${p.seatId}`}
-                      action={<Badge variant="brand">{p.seatId}</Badge>}
-                    />
-                    <SavedPassengerPicker
-                      passengerIndex={i}
-                      className="mb-4"
-                      onApply={(data) => {
-                        const n = [...passengers];
-                        n[i] = { ...n[i], ...data };
-                        setPassengers(n);
-                        if (i === 0 && data.email) setGuestEmail(data.email);
-                      }}
-                    />
-                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                      <Field label="Họ tên" required className="sm:col-span-2">
-                        <Input
-                          placeholder="Nguyễn Văn A"
-                          value={p.fullName}
-                          onChange={(e) => {
-                            const n = [...passengers];
-                            n[i] = { ...n[i], fullName: e.target.value };
-                            setPassengers(n);
-                          }}
-                        />
-                      </Field>
-                      <Field label="Số điện thoại" required>
-                        <Input
-                          placeholder="0901234567"
-                          value={p.phone}
-                          onChange={(e) => {
-                            const n = [...passengers];
-                            n[i] = { ...n[i], phone: e.target.value };
-                            setPassengers(n);
-                          }}
-                        />
-                      </Field>
-                      <Field label="Email" required>
-                        <Input
-                          placeholder="email@example.com"
-                          value={p.email}
-                          onChange={(e) => {
-                            const n = [...passengers];
-                            n[i] = { ...n[i], email: e.target.value };
-                            setPassengers(n);
-                          }}
-                        />
-                      </Field>
-                    </div>
+                {passengersReady && (submitting || autoSkippedForm) ? (
+                  <Card variant="solid" padding="lg" className="flex flex-col items-center rounded-3xl py-12 text-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-brand" />
+                    <p className="mt-4 text-body text-ink-muted">Đang chuẩn bị thanh toán...</p>
                   </Card>
-                ))}
+                ) : (
+                  <>
+                    <Card variant="solid" padding="md" className="rounded-3xl">
+                      <Field label="Email nhận vé" htmlFor="guestEmail" required>
+                        <Input
+                          id="guestEmail"
+                          placeholder="email@example.com"
+                          value={guestEmail}
+                          onChange={(e) => setGuestEmail(e.target.value)}
+                          className="h-11"
+                        />
+                      </Field>
+                    </Card>
 
-                <Button
-                  type="button"
-                  size="lg"
-                  onClick={submitBooking}
-                  disabled={submitting}
-                  className="w-full bg-gradient-to-r from-brand-600 to-brand-700"
-                >
-                  {submitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <ArrowRight className="h-4 w-4" />
-                  )}
-                  {submitting ? 'Đang tạo đơn...' : 'Tiếp tục thanh toán'}
-                </Button>
+                    {passengers.map((p, i) => (
+                      <Card key={p.seatId} variant="solid" padding="md" className="rounded-3xl">
+                        <CardHeader
+                          title={`Hành khách — Ghế ${p.seatId}`}
+                          action={<Badge variant="brand">{p.seatId}</Badge>}
+                        />
+                        <SavedPassengerPicker
+                          passengerIndex={i}
+                          className="mb-4"
+                          onApply={(data) => {
+                            const n = [...passengers];
+                            n[i] = { ...n[i], ...data };
+                            setPassengers(n);
+                            if (i === 0 && data.email) setGuestEmail(data.email);
+                          }}
+                        />
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                          <Field label="Họ tên" required className="sm:col-span-2">
+                            <Input
+                              placeholder="Nguyễn Văn A"
+                              value={p.fullName}
+                              onChange={(e) => {
+                                const n = [...passengers];
+                                n[i] = { ...n[i], fullName: e.target.value };
+                                setPassengers(n);
+                              }}
+                            />
+                          </Field>
+                          <Field label="Số điện thoại" required>
+                            <Input
+                              placeholder="0901234567"
+                              value={p.phone}
+                              onChange={(e) => {
+                                const n = [...passengers];
+                                n[i] = { ...n[i], phone: e.target.value };
+                                setPassengers(n);
+                              }}
+                            />
+                          </Field>
+                          <Field label="Email" required>
+                            <Input
+                              placeholder="email@example.com"
+                              value={p.email}
+                              onChange={(e) => {
+                                const n = [...passengers];
+                                n[i] = { ...n[i], email: e.target.value };
+                                setPassengers(n);
+                              }}
+                            />
+                          </Field>
+                        </div>
+                      </Card>
+                    ))}
+
+                    <Button
+                      type="button"
+                      size="lg"
+                      onClick={submitBooking}
+                      disabled={submitting}
+                      className="w-full bg-gradient-to-r from-brand-600 to-brand-700"
+                    >
+                      {submitting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ArrowRight className="h-4 w-4" />
+                      )}
+                      {submitting ? 'Đang tạo đơn...' : 'Tiếp tục thanh toán'}
+                    </Button>
+                  </>
+                )}
               </div>
             )}
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { ArrowLeftRight, Calendar, MapPin, Search } from 'lucide-react';
 import { LocationField } from '@/components/domain/LocationField';
 import { Button } from '@/components/ui/Button';
@@ -12,6 +13,7 @@ export interface TripSearchBoxProps {
   travelDate: string;
   originSuggestions: Array<{ name: string }>;
   destSuggestions: Array<{ name: string }>;
+  catalogLocations?: string[];
   loading?: boolean;
   onOriginChange: (v: string) => void;
   onDestChange: (v: string) => void;
@@ -30,6 +32,7 @@ export function TripSearchBox({
   travelDate,
   originSuggestions,
   destSuggestions,
+  catalogLocations = [],
   loading,
   onOriginChange,
   onDestChange,
@@ -42,6 +45,7 @@ export function TripSearchBox({
   className,
 }: TripSearchBoxProps) {
   const isHero = variant === 'hero';
+  const [openField, setOpenField] = useState<'origin' | 'destination' | null>(null);
 
   return (
     <div className={cn(isHero ? 'search-box-premium' : 'rounded-xl border border-slate-200/80 bg-white p-4 shadow-card', className)}>
@@ -55,9 +59,12 @@ export function TripSearchBox({
             value={originQuery}
             onChange={onOriginChange}
             suggestions={originSuggestions}
+            catalogLocations={catalogLocations}
             onPick={onOriginPick}
             placeholder="Nơi đi"
             icon="origin"
+            isOpen={openField === 'origin'}
+            onOpenChange={(open) => setOpenField(open ? 'origin' : null)}
           />
         </div>
 
@@ -65,7 +72,10 @@ export function TripSearchBox({
           <div className={cn('flex items-end', isHero ? 'pb-1' : 'pb-0 sm:items-end')}>
             <button
               type="button"
-              onClick={onSwap}
+              onClick={() => {
+                setOpenField(null);
+                onSwap?.();
+              }}
               aria-label="Đổi chiều"
               className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-surface-sunken text-ink-muted transition-all hover:border-brand/30 hover:bg-brand-50 hover:text-brand"
             >
@@ -83,9 +93,12 @@ export function TripSearchBox({
             value={destQuery}
             onChange={onDestChange}
             suggestions={destSuggestions}
+            catalogLocations={catalogLocations}
             onPick={onDestPick}
             placeholder="Nơi đến"
             icon="destination"
+            isOpen={openField === 'destination'}
+            onOpenChange={(open) => setOpenField(open ? 'destination' : null)}
           />
         </div>
 

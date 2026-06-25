@@ -241,6 +241,7 @@ function TripsSearchContent() {
             travelDate={travelDate}
             originSuggestions={originSuggestions}
             destSuggestions={destSuggestions}
+            catalogLocations={catalogLocations}
             loading={loading}
             onOriginChange={(v) => {
               setOriginQuery(v);

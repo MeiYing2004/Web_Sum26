@@ -6,6 +6,7 @@ import { cn } from '@/lib/cn';
 export const BOOKING_STEPS = [
   { id: 'trip', label: 'Chọn chuyến' },
   { id: 'seat', label: 'Chọn ghế' },
+  { id: 'passenger', label: 'Thông tin' },
   { id: 'payment', label: 'Thanh toán' },
   { id: 'done', label: 'Hoàn tất' },
 ] as const;

@@ -15,9 +15,12 @@ export function Field({ label, htmlFor, error, hint, required, children, classNa
   return (
     <div className={cn('space-y-1.5', className)}>
       {label && (
-        <label htmlFor={htmlFor} className="block text-caption font-medium text-ink">
+        <label
+          htmlFor={htmlFor}
+          className="block text-caption font-medium text-ink"
+          aria-required={required || undefined}
+        >
           {label}
-          {required && <span className="ml-0.5 text-danger">*</span>}
         </label>
       )}
       {children}

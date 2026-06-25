@@ -22,19 +22,24 @@ import { getSessionId } from '@/lib/session';
 import { departureDateVN } from '@/lib/datetime';
 import { getTripAvailability } from '@/lib/trip-availability';
 import { TripAvailabilityBadge } from '@/components/TripAvailabilityBadge';
-import { SavedPassengerPicker } from '@/components/domain/SavedPassengerPicker';
 import { BookingProgress } from '@/components/domain/BookingProgress';
+import { BookingSeatSummary } from '@/components/domain/BookingSeatSummary';
+import {
+  PassengerInfoStep,
+  type BookerInfo,
+  type PassengerDraft,
+} from '@/components/domain/PassengerInfoStep';
 import { PageShell } from '@/components/ui/PageShell';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Field } from '@/components/ui/Field';
 import { Badge } from '@/components/ui/Badge';
 import { Skeleton } from '@/components/ui/Skeleton';
 
 const GRAPHQL_URL = process.env.NEXT_PUBLIC_GRAPHQL_URL || 'http://localhost:4000/graphql';
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4000/graphql';
 const SERVICE_FEE_RATE = 0.02;
+
+type FlowStep = 'seat' | 'passenger';
 
 type TripInfo = {
   id: string;
@@ -55,8 +60,6 @@ type TripInfo = {
 
 type SeatLayout = { type: string; floors: Array<{ label?: string; rows: string[][] }> };
 type SeatRow = { seatId: string; seatLabel: string; status: string };
-
-type PassengerDraft = { fullName: string; phone: string; email: string; seatId: string };
 
 function normalizeTripId(raw: string | string[] | undefined): string {
   if (!raw) return '';
@@ -97,6 +100,10 @@ export default function TripDetailPage() {
   const [seats, setSeats] = useState<SeatRow[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [passengers, setPassengers] = useState<PassengerDraft[]>([]);
+  const [booker, setBooker] = useState<BookerInfo>({ fullName: '', phone: '', email: '' });
+  const [sameForAll, setSameForAll] = useState(true);
+  const [customizePerSeat, setCustomizePerSeat] = useState(false);
+  const [flowStep, setFlowStep] = useState<FlowStep>('seat');
   const [holdToken, setHoldToken] = useState('');
   const [countdown, setCountdown] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -122,6 +129,8 @@ export default function TripDetailPage() {
   const ticketTotal = trip ? trip.price * selected.length : 0;
   const serviceFee = Math.round(ticketTotal * SERVICE_FEE_RATE);
   const grandTotal = ticketTotal + serviceFee;
+
+  const progressStep = flowStep === 'seat' ? 'seat' : 'passenger';
 
   const loadSeats = useCallback(async () => {
     const data = await gql<{ seatMap: { layoutJson: string; seats: SeatRow[] } }>(
@@ -278,14 +287,28 @@ export default function TripDetailPage() {
   }, [countdown]);
 
   useEffect(() => {
-    setPassengers((prev) => {
-      const next = selected.map((seatId) => {
+    setPassengers((prev) =>
+      selected.map((seatId) => {
         const existing = prev.find((p) => p.seatId === seatId);
-        return existing || { seatId, fullName: '', phone: '', email: '' };
-      });
-      return next;
-    });
-  }, [selected]);
+        if (sameForAll && !customizePerSeat) {
+          return {
+            seatId,
+            fullName: booker.fullName,
+            phone: booker.phone,
+            email: booker.email,
+          };
+        }
+        return (
+          existing || {
+            seatId,
+            fullName: '',
+            phone: '',
+            email: booker.email,
+          }
+        );
+      })
+    );
+  }, [selected, sameForAll, customizePerSeat, booker]);
 
   async function holdSeat(seatId: string) {
     if (holdingSeatId || tripBlocked) return;
@@ -315,7 +338,7 @@ export default function TripDetailPage() {
   }
 
   async function handleSeatClick(seatId: string) {
-    if (holdingSeatId || tripBlocked) return;
+    if (holdingSeatId || tripBlocked || flowStep !== 'seat') return;
 
     if (selected.includes(seatId)) {
       setHoldingSeatId(seatId);
@@ -332,6 +355,7 @@ export default function TripDetailPage() {
         if (nextSelected.length === 0) {
           setHoldToken('');
           setCountdown(0);
+          setFlowStep('seat');
         }
         toast.success(`Đã bỏ chọn ghế ${seatId}`);
         await loadSeats();
@@ -353,18 +377,75 @@ export default function TripDetailPage() {
     });
   }
 
-  function canContinue() {
-    if (tripBlocked) return false;
-    if (!holdToken || selected.length === 0) return false;
-    return passengers.every((p) => p.fullName.trim() && p.phone.trim() && p.email.trim());
+  function handleSameForAllChange(checked: boolean) {
+    setSameForAll(checked);
+    if (checked) setCustomizePerSeat(false);
   }
 
-  function handleContinue() {
-    if (!canContinue() || !trip) return;
-    const guestEmail = passengers[0]?.email || '';
+  function handleCustomizePerSeat() {
+    setCustomizePerSeat(true);
+    setSameForAll(false);
+  }
+
+  function canProceedFromSeat() {
+    return !tripBlocked && !!holdToken && selected.length > 0;
+  }
+
+  function canProceedToPayment() {
+    if (!canProceedFromSeat()) return false;
+    if (!booker.fullName.trim() || !booker.phone.trim() || !booker.email.trim()) return false;
+    if (customizePerSeat || !sameForAll) {
+      return passengers.every((p) => p.fullName.trim() && p.phone.trim());
+    }
+    return true;
+  }
+
+  function buildPassengersForBooking(): PassengerDraft[] {
+    const email = booker.email.trim();
+    if (sameForAll && !customizePerSeat) {
+      return selected.map((seatId) => ({
+        seatId,
+        fullName: booker.fullName.trim(),
+        phone: booker.phone.trim(),
+        email,
+      }));
+    }
+    return passengers.map((p) => ({
+      seatId: p.seatId,
+      fullName: p.fullName.trim(),
+      phone: p.phone.trim(),
+      email: p.email.trim() || email,
+    }));
+  }
+
+  function handleSeatStepContinue() {
+    if (!canProceedFromSeat()) return;
+    setFlowStep('passenger');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function handleContinueToPayment() {
+    if (!canProceedToPayment() || !trip) return;
+    const finalPassengers = buildPassengersForBooking();
+    const guestEmail = booker.email.trim();
     sessionStorage.setItem(
       'bookingDraft',
-      JSON.stringify({ passengers, guestEmail, tripId, holdToken, selected })
+      JSON.stringify({
+        passengers: finalPassengers,
+        guestEmail,
+        tripId,
+        holdToken,
+        selected,
+        tripSummary: {
+          origin: trip.origin,
+          destination: trip.destination,
+          routeName: trip.routeName,
+          departureTime: trip.departureTime,
+          operatorName: trip.operatorName,
+          busType: trip.busType,
+          pricePerSeat: trip.price,
+        },
+      })
     );
     if (promoCode) {
       sessionStorage.setItem('activePromoCode', promoCode);
@@ -395,226 +476,170 @@ export default function TripDetailPage() {
     );
   }
 
+  const summaryAction =
+    flowStep === 'seat'
+      ? { label: 'Tiếp tục', disabled: !canProceedFromSeat(), onClick: handleSeatStepContinue }
+      : {
+          label: 'Tiếp tục thanh toán',
+          disabled: !canProceedToPayment(),
+          onClick: handleContinueToPayment,
+        };
+
   return (
-    <div className="mesh-bg min-h-screen">
-    <PageShell className="max-w-7xl">
-      <BookingProgress current="seat" className="mb-8" />
+    <div className="mesh-bg min-h-screen pb-24 lg:pb-0">
+      <PageShell className="max-w-7xl">
+        <BookingProgress current={progressStep} className="mb-8" />
 
-      <Link
-        href="/trips"
-        className="mb-5 inline-flex items-center gap-2 text-caption font-medium text-ink-muted transition-colors hover:text-brand"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Quay lại kết quả
-      </Link>
+        <Link
+          href="/trips"
+          className="mb-5 inline-flex items-center gap-2 text-caption font-medium text-ink-muted transition-colors hover:text-brand"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Quay lại kết quả
+        </Link>
 
-      <Card variant="glass" padding="md" className="mb-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <Badge variant="brand" className="mb-2">
-              {trip.operatorName}
-            </Badge>
-            <h1 className="text-title text-ink">
-              {trip.origin} <span className="font-normal text-brand">→</span> {trip.destination}
-            </h1>
-            <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-ink-muted">
-              <span className="inline-flex items-center gap-1">
-                <MapPin className="h-3.5 w-3.5" />
-                {trip.pickupPoint}
-              </span>
-              <span className="hidden text-slate-300 sm:inline">·</span>
-              <span>{trip.dropoffPoint}</span>
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-2xl font-bold text-brand">
-              {trip.price.toLocaleString('vi-VN')}
-              <span className="text-sm font-medium">đ</span>
-            </p>
-            <p className="text-micro text-ink-subtle">/ ghế</p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5">
-          <MetaChip icon={Clock} label="Khởi hành" value={formatTime(trip.departureTime)} />
-          <MetaChip icon={Clock} label="Đến nơi" value={formatTime(trip.arrivalTime)} />
-          <MetaChip
-            icon={Timer}
-            label="Thời gian"
-            value={formatDuration(trip.departureTime, trip.arrivalTime)}
-          />
-          <MetaChip icon={Bus} label="Loại xe" value={trip.busType} />
-          <MetaChip icon={Users} label="Còn trống" value={`${availableCount} ghế`} highlight />
-        </div>
-
-        {trip.cancellationPolicy && (
-          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="mb-1 flex items-center gap-1.5 text-caption font-semibold text-ink">
-              <Shield className="h-4 w-4 shrink-0 text-brand" />
-              Chính sách hủy vé
-            </p>
-            <p className="text-caption leading-relaxed text-ink-muted">{trip.cancellationPolicy}</p>
-          </div>
-        )}
-
-        {tripBlocked && (
-          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-danger/20 bg-danger-light px-4 py-3">
-            <TripAvailabilityBadge label={tripBlocked} />
-            <p className="text-caption text-danger">Chuyến này không còn khả dụng để đặt vé.</p>
-          </div>
-        )}
-
-        <AnimatePresence>
-          {countdown > 0 && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mt-4 overflow-hidden"
-            >
-              <div className="flex items-center gap-3 rounded-lg border border-warning/30 bg-warning-light px-4 py-3">
-                <Timer className="h-4 w-4 text-warning" />
-                <p className="text-caption text-ink">
-                  Ghế đang được giữ — hoàn tất trong{' '}
-                  <span className="font-mono font-bold">{formatCountdown(countdown)}</span>
-                </p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </Card>
-
-      <div className="grid gap-6 lg:grid-cols-[1fr_340px] lg:items-start">
-        <section>
-          <h2 className="mb-4 text-subtitle text-ink">Chọn ghế</h2>
-          {tripBlocked ? (
-            <Card variant="flat" padding="lg" className="text-center">
-              <p className="text-body text-danger">Không thể chọn ghế — {tripBlocked}</p>
-            </Card>
-          ) : (
-            <SeatMapGrid
-              layout={layout}
-              seats={seats}
-              selected={selected}
-              holdingSeatId={holdingSeatId}
-              onSelect={handleSeatClick}
-            />
-          )}
-        </section>
-
-        <aside className="lg:sticky lg:top-24">
-          <Card variant="elevated" padding="md">
-            <h3 className="text-subtitle text-ink">Tóm tắt đặt vé</h3>
-            <p className="mt-0.5 text-caption text-ink-muted">Xe {trip.busPlate}</p>
-
-            <div className="mt-4 space-y-3">
-              <SummaryRow label="Ghế đã chọn" value={selected.length ? selected.join(', ') : '—'} />
-              <SummaryRow
-                label="Giá vé"
-                value={ticketTotal ? `${ticketTotal.toLocaleString('vi-VN')}đ` : '—'}
-              />
-              <SummaryRow
-                label="Phí dịch vụ"
-                value={ticketTotal ? `${serviceFee.toLocaleString('vi-VN')}đ` : '—'}
-                muted
-              />
-              <div className="border-t border-slate-100 pt-3">
-                <SummaryRow
-                  label="Tổng cộng"
-                  value={grandTotal ? `${grandTotal.toLocaleString('vi-VN')}đ` : '—'}
-                  bold
-                />
-              </div>
-            </div>
-
-            <AnimatePresence>
-              {selected.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="mt-5 space-y-3 overflow-hidden border-t border-slate-100 pt-5"
-                >
-                      <p className="text-caption font-semibold text-ink">Thông tin hành khách</p>
-                      {passengers.map((p, i) => (
-                    <div key={p.seatId} className="space-y-2 rounded-lg bg-surface-sunken p-3">
-                      <p className="text-micro font-bold uppercase tracking-wide text-brand">
-                        Ghế {p.seatId}
-                      </p>
-                      <SavedPassengerPicker
-                        passengerIndex={i}
-                        onApply={(data) => {
-                          setPassengers((prev) => {
-                            const next = [...prev];
-                            next[i] = { ...next[i], ...data };
-                            return next;
-                          });
-                        }}
-                      />
-                      <Field label="Họ và tên">
-                        <Input
-                          placeholder="Nguyễn Văn A"
-                          value={p.fullName}
-                          onChange={(e) => updatePassenger(i, 'fullName', e.target.value)}
-                        />
-                      </Field>
-                      <Field label="Số điện thoại">
-                        <Input
-                          placeholder="0901234567"
-                          value={p.phone}
-                          onChange={(e) => updatePassenger(i, 'phone', e.target.value)}
-                        />
-                      </Field>
-                      <Field label="Email">
-                        <Input
-                          type="email"
-                          placeholder="email@example.com"
-                          value={p.email}
-                          onChange={(e) => updatePassenger(i, 'email', e.target.value)}
-                        />
-                      </Field>
-                    </div>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <Button
-              type="button"
-              size="lg"
-              disabled={!canContinue()}
-              onClick={handleContinue}
-              className="mt-5 w-full"
-            >
-              Tiếp tục thanh toán
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-
-            <p className="mt-3 flex items-center justify-center gap-1.5 text-micro text-ink-subtle">
-              <Shield className="h-3.5 w-3.5" />
-              Thanh toán an toàn & bảo mật
-            </p>
-          </Card>
-        </aside>
-      </div>
-
-      {selected.length > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 p-4 backdrop-blur-lg lg:hidden">
-          <div className="flex items-center justify-between gap-4">
+        <Card variant="glass" padding="md" className="mb-6 rounded-3xl">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-caption text-ink-muted">{selected.length} ghế · {selected.join(', ')}</p>
-              <p className="text-subtitle font-bold text-brand">
-                {grandTotal.toLocaleString('vi-VN')}đ
+              <Badge variant="brand" className="mb-2">
+                {trip.operatorName}
+              </Badge>
+              <h1 className="text-title text-ink">
+                {trip.origin} <span className="font-normal text-brand">→</span> {trip.destination}
+              </h1>
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-ink-muted">
+                <span className="inline-flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" />
+                  {trip.pickupPoint}
+                </span>
+                <span className="hidden text-slate-300 sm:inline">·</span>
+                <span>{trip.dropoffPoint}</span>
               </p>
             </div>
-            <Button disabled={!canContinue()} onClick={handleContinue}>
-              Tiếp tục
-              <ArrowRight className="h-4 w-4" />
-            </Button>
+            <div className="text-right">
+              <p className="text-2xl font-bold text-brand">
+                {trip.price.toLocaleString('vi-VN')}
+                <span className="text-sm font-medium">đ</span>
+              </p>
+              <p className="text-micro text-ink-subtle">/ ghế</p>
+            </div>
           </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5">
+            <MetaChip icon={Clock} label="Khởi hành" value={formatTime(trip.departureTime)} />
+            <MetaChip icon={Clock} label="Đến nơi" value={formatTime(trip.arrivalTime)} />
+            <MetaChip
+              icon={Timer}
+              label="Thời gian"
+              value={formatDuration(trip.departureTime, trip.arrivalTime)}
+            />
+            <MetaChip icon={Bus} label="Loại xe" value={trip.busType} />
+            <MetaChip icon={Users} label="Còn trống" value={`${availableCount} ghế`} highlight />
+          </div>
+
+          {trip.cancellationPolicy && (
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="mb-1 flex items-center gap-1.5 text-caption font-semibold text-ink">
+                <Shield className="h-4 w-4 shrink-0 text-brand" />
+                Chính sách hủy vé
+              </p>
+              <p className="text-caption leading-relaxed text-ink-muted">{trip.cancellationPolicy}</p>
+            </div>
+          )}
+
+          {tripBlocked && (
+            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-danger/20 bg-danger-light px-4 py-3">
+              <TripAvailabilityBadge label={tripBlocked} />
+              <p className="text-caption text-danger">Chuyến này không còn khả dụng để đặt vé.</p>
+            </div>
+          )}
+
+          <AnimatePresence>
+            {countdown > 0 && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-4 overflow-hidden"
+              >
+                <div className="flex items-center gap-3 rounded-2xl border border-warning/30 bg-warning-light px-4 py-3">
+                  <Timer className="h-4 w-4 text-warning" />
+                  <p className="text-caption text-ink">
+                    Ghế đang được giữ — hoàn tất trong{' '}
+                    <span className="font-mono font-bold">{formatCountdown(countdown)}</span>
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </Card>
+
+        <div className="grid gap-6 lg:grid-cols-[1fr_360px] lg:items-start">
+          {flowStep === 'seat' ? (
+            <section>
+              <h2 className="mb-4 text-subtitle text-ink">Chọn ghế</h2>
+              {tripBlocked ? (
+                <Card variant="flat" padding="lg" className="rounded-3xl text-center">
+                  <p className="text-body text-danger">Không thể chọn ghế — {tripBlocked}</p>
+                </Card>
+              ) : (
+                <SeatMapGrid
+                  layout={layout}
+                  seats={seats}
+                  selected={selected}
+                  holdingSeatId={holdingSeatId}
+                  onSelect={handleSeatClick}
+                />
+              )}
+            </section>
+          ) : (
+            <PassengerInfoStep
+              selectedSeats={selected}
+              booker={booker}
+              onBookerChange={setBooker}
+              sameForAll={sameForAll}
+              onSameForAllChange={handleSameForAllChange}
+              customizePerSeat={customizePerSeat}
+              onCustomizePerSeat={handleCustomizePerSeat}
+              passengers={passengers}
+              onPassengerFieldChange={updatePassenger}
+              onBack={() => setFlowStep('seat')}
+            />
+          )}
+
+          <aside className="hidden lg:block lg:sticky lg:top-24">
+            <BookingSeatSummary
+              busPlate={trip.busPlate}
+              selectedSeats={selected}
+              ticketTotal={ticketTotal}
+              serviceFee={serviceFee}
+              grandTotal={grandTotal}
+              actionLabel={summaryAction.label}
+              actionDisabled={summaryAction.disabled}
+              onAction={summaryAction.onClick}
+            />
+          </aside>
         </div>
-      )}
-    </PageShell>
+
+        {selected.length > 0 && (
+          <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 p-4 backdrop-blur-lg lg:hidden">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-caption text-ink-muted">
+                  {selected.length} ghế · {selected.join(', ')}
+                </p>
+                <p className="text-subtitle font-bold text-brand">
+                  {grandTotal.toLocaleString('vi-VN')}đ
+                </p>
+              </div>
+              <Button disabled={summaryAction.disabled} onClick={summaryAction.onClick}>
+                {flowStep === 'seat' ? 'Tiếp tục' : 'Thanh toán'}
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </PageShell>
     </div>
   );
 }
@@ -632,7 +657,7 @@ function MetaChip({
 }) {
   return (
     <div
-      className={`rounded-lg px-3 py-2.5 ${highlight ? 'bg-brand-50 ring-1 ring-brand-100' : 'bg-surface-sunken'}`}
+      className={`rounded-xl px-3 py-2.5 ${highlight ? 'bg-brand-50 ring-1 ring-brand-100' : 'bg-surface-sunken'}`}
     >
       <div className="mb-0.5 flex items-center gap-1 text-micro font-medium uppercase tracking-wide text-ink-subtle">
         <Icon className="h-3 w-3" />
@@ -645,33 +670,12 @@ function MetaChip({
   );
 }
 
-function SummaryRow({
-  label,
-  value,
-  muted,
-  bold,
-}: {
-  label: string;
-  value: string;
-  muted?: boolean;
-  bold?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className={`text-caption ${muted ? 'text-ink-subtle' : 'text-ink-muted'}`}>{label}</span>
-      <span className={`text-caption ${bold ? 'text-subtitle font-bold text-ink' : 'font-semibold text-ink'}`}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
 function PageSkeleton() {
   return (
     <PageShell className="max-w-7xl">
       <Skeleton className="mb-5 h-4 w-32" />
       <Skeleton className="mb-6 h-40 rounded-card" />
-      <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <Skeleton className="h-[420px] rounded-card" />
         <Skeleton className="h-80 rounded-card" />
       </div>
