@@ -1,8 +1,23 @@
 {
-  "name": "@bus/ticket-service",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": { "dev": "tsx watch src/index.ts", "start": "node dist/index.js", "build": "prisma generate && tsc" },
-  "dependencies": { "@bus/shared": "*", "@bus/proto": "*", "@grpc/grpc-js": "^1.12.6", "@prisma/client": "^6.5.0" },
-  "devDependencies": { "@types/node": "^22.13.10", "prisma": "^6.5.0", "tsx": "^4.19.3", "typescript": "^5.8.2" }
+    "name":  "@bus/ticket-service",
+    "version":  "1.0.0",
+    "private":  true,
+    "scripts":  {
+                    "dev":  "tsx watch src/index.ts",
+                    "start":  "node dist/index.js",
+                    "build":  "prisma generate \u0026\u0026 tsc",
+                    "typecheck":  "prisma generate \u0026\u0026 tsc --noEmit"
+                },
+    "dependencies":  {
+                         "@bus/shared":  "*",
+                         "@bus/proto":  "*",
+                         "@grpc/grpc-js":  "^1.12.6",
+                         "@prisma/client":  "^6.5.0"
+                     },
+    "devDependencies":  {
+                            "@types/node":  "^22.13.10",
+                            "prisma":  "^6.5.0",
+                            "tsx":  "^4.19.3",
+                            "typescript":  "^5.8.2"
+                        }
 }

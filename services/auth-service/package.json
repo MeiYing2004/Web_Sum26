@@ -1,27 +1,28 @@
 {
-  "name": "@bus/auth-service",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
-    "build": "prisma generate && tsc && node -e \"require('fs').cpSync('src/generated','dist/generated',{recursive:true})\"",
-    "postinstall": "prisma generate"
-  },
-  "dependencies": {
-    "@bus/proto": "*",
-    "@bus/shared": "*",
-    "@grpc/grpc-js": "^1.12.6",
-    "@prisma/client": "^6.5.0",
-    "bcryptjs": "^3.0.3",
-    "pg": "^8.14.1"
-  },
-  "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^22.13.10",
-    "@types/pg": "^8.11.11",
-    "prisma": "^6.5.0",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
-  }
+    "name":  "@bus/auth-service",
+    "version":  "1.0.0",
+    "private":  true,
+    "scripts":  {
+                    "dev":  "tsx watch src/index.ts",
+                    "start":  "node dist/index.js",
+                    "build":  "prisma generate \u0026\u0026 tsc \u0026\u0026 node -e \"require(\u0027fs\u0027).cpSync(\u0027src/generated\u0027,\u0027dist/generated\u0027,{recursive:true})\"",
+                    "postinstall":  "prisma generate",
+                    "typecheck":  "prisma generate \u0026\u0026 tsc --noEmit"
+                },
+    "dependencies":  {
+                         "@bus/proto":  "*",
+                         "@bus/shared":  "*",
+                         "@grpc/grpc-js":  "^1.12.6",
+                         "@prisma/client":  "^6.5.0",
+                         "bcryptjs":  "^3.0.3",
+                         "pg":  "^8.14.1"
+                     },
+    "devDependencies":  {
+                            "@types/bcryptjs":  "^2.4.6",
+                            "@types/node":  "^22.13.10",
+                            "@types/pg":  "^8.11.11",
+                            "prisma":  "^6.5.0",
+                            "tsx":  "^4.19.3",
+                            "typescript":  "^5.8.2"
+                        }
 }

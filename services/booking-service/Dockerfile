@@ -4,7 +4,7 @@ COPY package.json ./
 COPY packages ./packages
 COPY services/booking-service ./services/booking-service
 RUN npm install && npm run build -w @bus/shared
-RUN cd services/booking-service && npx prisma generate && npx tsc
+RUN cd services/booking-service && npm run build
 
 FROM node:20-alpine
 WORKDIR /app/services/booking-service

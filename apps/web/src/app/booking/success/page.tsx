@@ -16,6 +16,7 @@ import {
   Loader2,
   Mail,
   MapPin,
+  Phone,
   Search,
   Ticket,
   User,
@@ -90,7 +91,8 @@ function SuccessContent() {
         if (!fromStorage.trip && urlParams) {
           const fromApi = await fetchBookingSuccessFromApi(
             urlParams.bookingCode,
-            urlParams.guestEmail
+            urlParams.guestEmail || undefined,
+            urlParams.guestPhone || undefined
           );
           if (!cancelled && fromApi) {
             resolvedRef.current = true;
@@ -122,7 +124,11 @@ function SuccessContent() {
         return;
       }
 
-      const fromApi = await fetchBookingSuccessFromApi(urlParams.bookingCode, urlParams.guestEmail);
+      const fromApi = await fetchBookingSuccessFromApi(
+        urlParams.bookingCode,
+        urlParams.guestEmail || undefined,
+        urlParams.guestPhone || undefined
+      );
       if (!cancelled) {
         resolvedRef.current = true;
         setPayload(fromApi ?? fromStorage);
@@ -165,7 +171,7 @@ function SuccessContent() {
           </div>
           <h1 className="text-title text-ink">Không tìm thấy thông tin đặt vé</h1>
           <p className="mt-2 text-body text-ink-muted">
-            Vui lòng tra cứu vé bằng mã đặt vé và email nhận vé.
+            Vui lòng tra cứu vé bằng mã đặt vé kèm email hoặc số điện thoại.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link href="/lookup">
@@ -188,7 +194,12 @@ function SuccessContent() {
 
   const paymentLabel =
     PAYMENT_STATUS_LABELS[payload.paymentStatus] || payload.paymentStatus || 'Đã thanh toán';
-  const lookupHref = buildLookupUrl(payload.bookingCode, payload.guestEmail);
+  const hasEmail = !!payload.guestEmail?.trim();
+  const lookupHref = buildLookupUrl(
+    payload.bookingCode,
+    payload.guestEmail,
+    payload.guestPhone
+  );
   const trip = payload.trip;
   const routeLabel =
     trip?.origin && trip?.destination
@@ -214,7 +225,9 @@ function SuccessContent() {
           </div>
           <h1 className="text-display text-ink">🎉 Đặt vé thành công!</h1>
           <p className="mx-auto mt-3 max-w-lg text-body text-ink-muted">
-            Thông tin vé đã được gửi tới email của bạn. Bạn có thể tra cứu vé bất kỳ lúc nào.
+            {hasEmail
+              ? 'Thông tin vé đã được gửi tới email của bạn. Bạn có thể tra cứu vé bất kỳ lúc nào.'
+              : 'Đặt vé thành công! Lưu mã đặt vé và tra cứu bằng số điện thoại đã đăng ký.'}
           </p>
         </motion.div>
 
@@ -287,7 +300,11 @@ function SuccessContent() {
 
               {/* Passenger & contact */}
               <div className="grid gap-6 sm:grid-cols-2">
-                <InfoRow icon={Mail} label="Email nhận vé" value={payload.guestEmail} />
+                {hasEmail ? (
+                  <InfoRow icon={Mail} label="Email nhận vé" value={payload.guestEmail} />
+                ) : payload.guestPhone ? (
+                  <InfoRow icon={Phone} label="Số điện thoại tra cứu" value={payload.guestPhone} />
+                ) : null}
                 <InfoRow
                   icon={Hash}
                   label="Ghế đã đặt"
@@ -296,6 +313,13 @@ function SuccessContent() {
                   }
                 />
               </div>
+
+              {!hasEmail && payload.guestPhone ? (
+                <div className="rounded-2xl border border-brand/15 bg-brand-50/60 px-4 py-3 text-caption text-ink-muted">
+                  Tra cứu vé tại trang Tra cứu với <strong className="text-ink">mã đặt vé</strong> và{' '}
+                  <strong className="text-ink">số điện thoại {payload.guestPhone}</strong>.
+                </div>
+              ) : null}
 
               <div>
                 <p className="mb-3 flex items-center gap-2 text-micro font-semibold uppercase tracking-wide text-ink-subtle">
@@ -329,9 +353,17 @@ function SuccessContent() {
                     <span className="text-ink-muted">Phí dịch vụ</span>
                     <span className="font-semibold text-ink">{formatVnd(payload.serviceFee)}</span>
                   </div>
+                  {payload.discountAmount && payload.discountAmount > 0 ? (
+                    <div className="flex items-center justify-between text-body text-emerald-700">
+                      <span>
+                        Voucher{payload.voucherCode ? ` (${payload.voucherCode})` : ''}
+                      </span>
+                      <span className="font-semibold">-{formatVnd(payload.discountAmount)}</span>
+                    </div>
+                  ) : null}
                   <div className="border-t border-dashed border-slate-200 pt-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-subtitle font-bold text-ink">Tổng cộng</span>
+                      <span className="text-subtitle font-bold text-ink">Tổng thanh toán</span>
                       <span className="text-title font-bold text-brand">
                         {formatVnd(payload.totalAmount)}
                       </span>

@@ -1,5 +1,5 @@
 import * as grpc from '@grpc/grpc-js';
-import { PrismaClient, TripStatus } from '@prisma/client';
+import { PrismaClient, TripStatus } from './generated/client';
 import type { Redis } from 'ioredis';
 import {
   DEFAULT_LAYOUTS,
@@ -8,7 +8,9 @@ import {
   sanitizeString,
   parseTravelDate,
   vnDayBounds,
+  getTripAvailability,
 } from '@bus/shared';
+import { syncTripsBatch } from './sync-trip-status';
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -83,22 +85,32 @@ function mapBus(bus: {
   };
 }
 
-function mapAdminTrip(t: {
-  id: string;
-  routeId: string;
-  busId: string;
-  operatorId: string;
-  departureTime: Date;
-  arrivalTime: Date;
-  price: number;
-  status: TripStatus;
-  pickupPoint: string;
-  dropoffPoint: string;
-  cancellationPolicy: string;
-  route: { name: string; origin: string; destination: string };
-  bus: { plate: string; busType: string };
-  operator: { name: string };
-}) {
+function mapAdminTrip(
+  t: {
+    id: string;
+    routeId: string;
+    busId: string;
+    operatorId: string;
+    departureTime: Date;
+    arrivalTime: Date;
+    price: number;
+    status: TripStatus;
+    pickupPoint: string;
+    dropoffPoint: string;
+    cancellationPolicy: string;
+    route: { name: string; origin: string; destination: string };
+    bus: { plate: string; busType: string };
+    operator: { name: string };
+  },
+  now: Date = new Date()
+) {
+  const departureIso = t.departureTime.toISOString();
+  const travelDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(t.departureTime);
+  const av = getTripAvailability(travelDate, departureIso, now, undefined, {
+    arrivalTimeIso: t.arrivalTime.toISOString(),
+    dbStatus: t.status,
+  });
+
   return {
     id: t.id,
     route_id: t.routeId,
@@ -110,13 +122,16 @@ function mapAdminTrip(t: {
     bus_type: t.bus.busType,
     operator_id: t.operatorId,
     operator_name: t.operator.name,
-    departure_time: t.departureTime.toISOString(),
+    departure_time: departureIso,
     arrival_time: t.arrivalTime.toISOString(),
     price: t.price,
-    status: t.status,
+    status: av.effectiveStatus,
     pickup_point: t.pickupPoint,
     dropoff_point: t.dropoffPoint,
     cancellation_policy: t.cancellationPolicy,
+    display_status: av.displayStatus,
+    display_status_label: av.displayStatusLabel,
+    server_now: now.toISOString(),
   };
 }
 
@@ -548,7 +563,13 @@ export function createAdminCrudHandlers(prisma: PrismaClient, redis: Redis) {
           }),
           prisma.trip.count({ where }),
         ]);
-        callback(null, { trips: trips.map(mapAdminTrip), total });
+        const now = new Date();
+        const statusMap = await syncTripsBatch(prisma, redis, trips, now);
+        const syncedTrips = trips.map((trip) => ({
+          ...trip,
+          status: statusMap.get(trip.id) ?? trip.status,
+        }));
+        callback(null, { trips: syncedTrips.map((t) => mapAdminTrip(t, now)), total });
       } catch (err) {
         callback(err as grpc.ServiceError, null);
       }

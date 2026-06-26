@@ -19,6 +19,20 @@ export function sanitizeEmail(email: unknown): string {
   return s;
 }
 
+/** Returns normalized email or empty string; throws only when email is non-empty but invalid. */
+export function sanitizeOptionalEmail(email: unknown): string {
+  const s = sanitizeString(email, 254).toLowerCase();
+  if (!s) return '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) {
+    throw new Error('Email không hợp lệ');
+  }
+  return s;
+}
+
+export function normalizePhoneDigits(phone: unknown): string {
+  return sanitizeString(phone, 20).replace(/\D/g, '');
+}
+
 export function sanitizeBookingCode(code: unknown): string {
   const s = sanitizeString(code, 32).toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!/^(BK|TK)[A-Z0-9]{4,}$/.test(s)) {

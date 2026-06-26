@@ -19,18 +19,25 @@ export type ETicket = {
   busPlate: string;
   busType?: string;
   totalAmount: number;
+  ticketSubtotal?: number;
+  serviceFee?: number;
+  discountAmount?: number;
+  voucherCode?: string;
+  finalAmount?: number;
   paymentStatus: string;
   bookingStatus: string;
   qrCode: string;
   createdAt: string;
 };
 
+/** Must match `ETicket` in services/api-gateway/src/schema.graphql */
 export const ETICKET_FIELDS = `
   id ticketCode bookingId bookingCode tripId
   passengerName passengerPhone passengerEmail seatId
   routeName origin destination operatorName
-  pickupPoint dropoffPoint departureTime busPlate
-  totalAmount paymentStatus bookingStatus qrCode createdAt
+  pickupPoint dropoffPoint departureTime
+  busPlate totalAmount ticketSubtotal serviceFee discountAmount voucherCode finalAmount
+  paymentStatus bookingStatus qrCode createdAt
 `;
 
 export type TicketFilter = 'ALL' | 'UPCOMING' | 'COMPLETED' | 'CANCELLED';

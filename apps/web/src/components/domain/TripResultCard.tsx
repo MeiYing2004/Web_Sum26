@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { TripAvailabilityBadge } from '@/components/TripAvailabilityBadge';
+import { nonBookableButtonLabel } from '@/lib/trip-availability';
 import { getBusImage } from '@/lib/images';
 import { operatorRating } from '@/lib/marketing';
 import { cn } from '@/lib/cn';
@@ -191,9 +192,14 @@ export function TripResultCard({
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </Button>
             ) : (
-              <Badge variant="danger" className="px-4 py-2 text-body">
-                {trip.availabilityLabel || 'Hết vé'}
-              </Badge>
+              <div className="flex flex-col items-end gap-2">
+                {trip.availabilityLabel ? (
+                  <TripAvailabilityBadge label={trip.availabilityLabel} status={trip.availabilityStatus} />
+                ) : null}
+                <Button size="lg" disabled className="cursor-not-allowed opacity-70">
+                  {nonBookableButtonLabel(trip.availabilityStatus)}
+                </Button>
+              </div>
             )}
           </div>
         </div>

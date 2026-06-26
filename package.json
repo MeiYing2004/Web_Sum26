@@ -9,6 +9,7 @@
     "apps/*"
   ],
   "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "dev": "node scripts/dev-all.cjs",
     "dev:infra": "docker compose up -d postgres redis kafka rabbitmq",
@@ -16,6 +17,7 @@
     "dev:ai": "node scripts/start-dev-service.cjs ai",
     "dev:mcp": "npx tsx apps/mcp-server/src/index.ts",
     "dev:web": "npm run dev -w @bus/web",
+    "dev:lan-firewall": "node scripts/open-lan-firewall.cjs",
     "proto:gen": "npm run proto:gen -w @bus/proto",
     "db:migrate": "npm run db:migrate --workspaces --if-present",
     "db:seed": "npm run db:seed --workspaces --if-present",

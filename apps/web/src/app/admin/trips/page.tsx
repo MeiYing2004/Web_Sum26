@@ -119,7 +119,7 @@ export default function AdminTripsPage() {
       if (statusFilter) parts.push(`status: ${statusFilter}`);
       if (routeFilter) parts.push(`routeId: "${routeFilter}"`);
       const data = await gql<{ adminTrips: { trips: AdminTrip[]; total: number } }>(
-        `{ adminTrips(${parts.join(', ')}) { total trips { id routeId routeName origin destination busId busPlate busType operatorId operatorName departureTime arrivalTime price status pickupPoint dropoffPoint cancellationPolicy } } }`,
+        `{ adminTrips(${parts.join(', ')}) { total trips { id routeId routeName origin destination busId busPlate busType operatorId operatorName departureTime arrivalTime price status displayStatus displayStatusLabel pickupPoint dropoffPoint cancellationPolicy } } }`,
         undefined,
         { token }
       );
@@ -138,6 +138,13 @@ export default function AdminTripsPage() {
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void load();
+    }, 60_000);
+    return () => clearInterval(timer);
   }, [load]);
 
   function openCreate() {
@@ -265,16 +272,20 @@ export default function AdminTripsPage() {
     }
   }
 
-  function statusBadge(status: string) {
+  function statusBadge(row: AdminTrip) {
+    const label = row.displayStatusLabel || TRIP_STATUS_LABEL[row.status] || row.status;
+    const status = row.displayStatus || row.status;
     const variant =
-      status === 'ACTIVE'
+      status === 'SELLING' || status === 'ACTIVE'
         ? 'success'
-        : status === 'INACTIVE'
+        : status === 'UPCOMING'
           ? 'warning'
-          : status === 'CANCELLED'
-            ? 'danger'
-            : 'default';
-    return <Badge variant={variant}>{TRIP_STATUS_LABEL[status] || status}</Badge>;
+          : status === 'INACTIVE'
+            ? 'warning'
+            : status === 'CANCELLED'
+              ? 'danger'
+              : 'default';
+    return <Badge variant={variant}>{label}</Badge>;
   }
 
   return (
@@ -354,7 +365,7 @@ export default function AdminTripsPage() {
             ),
           },
           { key: 'price', header: 'Giá vé', render: (r) => formatPrice(r.price) },
-          { key: 'status', header: 'Trạng thái', render: (r) => statusBadge(r.status) },
+          { key: 'status', header: 'Trạng thái', render: (r) => statusBadge(r) },
           {
             key: 'ops',
             header: 'Thao tác',
@@ -379,14 +390,9 @@ export default function AdminTripsPage() {
                         <ListOrdered className="h-3.5 w-3.5 text-amber-600" />
                       </Button>
                     )}
-                    {r.status === 'ACTIVE' && (
-                      <Button variant="ghost" size="sm" onClick={() => setStatus(r, 'DEPARTED')} title="Đã khởi hành">
-                        <span className="text-[10px] font-bold text-blue-600">GO</span>
-                      </Button>
-                    )}
-                    {r.status === 'DEPARTED' && (
-                      <Button variant="ghost" size="sm" onClick={() => setStatus(r, 'COMPLETED')} title="Hoàn thành">
-                        <span className="text-[10px] font-bold text-slate-600">OK</span>
+                    {(r.status === 'ACTIVE' || r.status === 'INACTIVE') && (
+                      <Button variant="ghost" size="sm" onClick={() => setStatus(r, 'CANCELLED')} title="Hủy chuyến">
+                        <span className="text-[10px] font-bold text-red-600">X</span>
                       </Button>
                     )}
                     <Button variant="ghost" size="icon" onClick={() => openEdit(r)} aria-label="Sửa">

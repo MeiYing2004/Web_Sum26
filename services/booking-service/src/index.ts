@@ -1,5 +1,5 @@
 import * as grpc from '@grpc/grpc-js';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from './generated/client';
 import { BookingService, SeatInventoryService, PaymentService, TripService, TicketService } from '@bus/proto';
 import {
   canTransition,
@@ -10,7 +10,29 @@ import {
   createLogger,
   logEvent,
   getGrpcRequestId,
+  computeBookingPricing,
+  formatDateVN,
+  normalizePhoneDigits,
+  sanitizeOptionalEmail,
 } from '@bus/shared';
+import {
+  submitReview,
+  getReviewByBooking,
+  listUserReviews,
+  listTripReviews,
+  listFeaturedReviews,
+  getTripRatingSummary,
+  getReviewSatisfactionStats,
+  getOperatorReviewSummaries,
+} from './reviews';
+import { ensureVoucherSeed } from './seed-vouchers';
+import {
+  applyVoucherToBookingRecord,
+  listAvailableVouchersForBooking,
+  redeemVoucherForBooking,
+  validateVoucherForBooking,
+  voucherFieldsForDetail,
+} from './vouchers';
 
 const logger = createLogger('booking-service');
 
@@ -58,6 +80,28 @@ function normalizeCode(code: string) {
   return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+/** Admin UI shows multi-seat refs as BOOKINGCODE-SEAT (e.g. TKMQUFLYG2J7DI-A06). */
+function splitCompositeTicketRef(ref: string): { bookingRef: string; seatId?: string } {
+  const trimmed = ref.trim();
+  const lastDash = trimmed.lastIndexOf('-');
+  if (lastDash > 0) {
+    const suffix = trimmed.slice(lastDash + 1);
+    if (/^[A-Z]{1,2}\d{1,2}$/i.test(suffix)) {
+      return { bookingRef: trimmed.slice(0, lastDash), seatId: suffix.toUpperCase() };
+    }
+  }
+  return { bookingRef: trimmed };
+}
+
+function bookingLookupCodes(ref: string): string[] {
+  const trimmed = ref.trim();
+  if (!trimmed) return [];
+
+  const { bookingRef } = splitCompositeTicketRef(trimmed);
+  const codes = [trimmed, bookingRef, normalizeCode(trimmed), normalizeCode(bookingRef)];
+  return [...new Set(codes.filter(Boolean))];
+}
+
 type TripMeta = {
   routeName: string;
   origin: string;
@@ -67,6 +111,7 @@ type TripMeta = {
   dropoffPoint: string;
   departureTime: string;
   busPlate: string;
+  pricePerSeat: number;
 };
 
 async function fetchTripMeta(tripId: string): Promise<TripMeta> {
@@ -83,6 +128,7 @@ async function fetchTripMeta(tripId: string): Promise<TripMeta> {
       dropoffPoint: String(t.dropoff_point ?? 'Điểm đến'),
       departureTime: String(t.departure_time ?? new Date().toISOString()),
       busPlate: String(t.bus_plate ?? ''),
+      pricePerSeat: Number(t.price) || 0,
     };
   } catch {
     return {
@@ -94,8 +140,112 @@ async function fetchTripMeta(tripId: string): Promise<TripMeta> {
       dropoffPoint: 'Điểm đến',
       departureTime: new Date().toISOString(),
       busPlate: '',
+      pricePerSeat: 0,
     };
   }
+}
+
+async function validateHoldForBooking(tripId: string, holdToken: string, seatIds: string[]) {
+  const res = await promisify<{ valid: boolean; message: string }>((cb) =>
+    seatClient().ValidateHold({ trip_id: tripId, hold_token: holdToken, seat_ids: seatIds }, cb)
+  );
+  if (!res.valid) {
+    throw new Error(res.message || 'Mã giữ ghế không hợp lệ');
+  }
+}
+
+function assertPaymentAccess(
+  booking: {
+    userId: string | null;
+    guestEmail: string;
+    passengers?: Array<{ phone: string; email: string }>;
+  },
+  userId?: string,
+  guestEmail?: string,
+  guestPhone?: string
+) {
+  const ownerId = booking.userId?.trim() || '';
+  const storedEmail = booking.guestEmail?.trim().toLowerCase() || '';
+
+  if (userId) {
+    if (ownerId) {
+      if (ownerId !== userId) {
+        throw new Error('Forbidden — bạn không có quyền thanh toán đặt vé này');
+      }
+      return;
+    }
+    if (storedEmail) {
+      if (!guestEmail?.trim()) {
+        throw new Error('Forbidden — cần email xác minh cho đơn khách vãng lai');
+      }
+      const emailNorm = guestEmail.trim().toLowerCase();
+      if (storedEmail !== emailNorm) {
+        throw new Error('Forbidden — email không khớp với đơn đặt vé');
+      }
+      return;
+    }
+    assertGuestPhoneAccess(booking, guestPhone);
+    return;
+  }
+
+  if (storedEmail) {
+    if (!guestEmail?.trim()) {
+      throw new Error('Unauthorized — vui lòng cung cấp email đặt vé');
+    }
+    const emailNorm = guestEmail.trim().toLowerCase();
+    if (storedEmail !== emailNorm) {
+      throw new Error('Forbidden — email không khớp với đơn đặt vé');
+    }
+    return;
+  }
+
+  assertGuestPhoneAccess(booking, guestPhone);
+}
+
+function assertGuestPhoneAccess(
+  booking: { passengers?: Array<{ phone: string }> },
+  guestPhone?: string
+) {
+  if (!guestPhone?.trim()) {
+    throw new Error('Unauthorized — vui lòng cung cấp số điện thoại đặt vé');
+  }
+  const phoneNorm = normalizePhoneDigits(guestPhone);
+  const passengers = booking.passengers || [];
+  if (!passengers.some((p) => normalizePhoneDigits(p.phone) === phoneNorm)) {
+    throw new Error('Forbidden — số điện thoại không khớp với đơn đặt vé');
+  }
+}
+
+function verifyBookingLookup(
+  b: { guestEmail: string; passengers: Array<{ phone: string; email: string }> },
+  email?: string,
+  phone?: string
+) {
+  const emailNorm = email?.trim().toLowerCase();
+  const phoneNorm = phone ? normalizePhoneDigits(phone) : '';
+
+  if (emailNorm) {
+    const guestMatch = b.guestEmail.toLowerCase() === emailNorm;
+    const passengerMatch = b.passengers.some((p) => p.email.toLowerCase() === emailNorm);
+    if (!guestMatch && !passengerMatch) {
+      throw new Error('Mã vé và email không khớp');
+    }
+    return;
+  }
+
+  if (phoneNorm) {
+    const phoneMatch = b.passengers.some((p) => normalizePhoneDigits(p.phone) === phoneNorm);
+    if (!phoneMatch) {
+      throw new Error('Mã vé và số điện thoại không khớp');
+    }
+    return;
+  }
+
+  if (b.guestEmail.trim()) {
+    throw new Error('Vui lòng cung cấp email hoặc số điện thoại để tra cứu vé');
+  }
+
+  throw new Error('Vui lòng cung cấp số điện thoại để tra cứu vé');
 }
 
 async function findBookingByRef(ref: string) {
@@ -112,17 +262,164 @@ async function findBookingByRef(ref: string) {
   });
 }
 
-async function transitionStatus(bookingId: string, from: string, to: string) {
+async function findBookingForCheckIn(ref: string) {
+  const { bookingRef } = splitCompositeTicketRef(ref);
+  const code = normalizeCode(bookingRef);
+  const byId = await prisma.booking.findUnique({
+    where: { id: bookingRef },
+    include: { passengers: true, voucher: true },
+  });
+  if (byId) return byId;
+
+  return prisma.booking.findFirst({
+    where: { bookingCode: { equals: code, mode: 'insensitive' } },
+    include: { passengers: true, voucher: true },
+  });
+}
+
+async function resolveBookingByRef(ref: string) {
+  const trimmed = ref.trim();
+  if (!trimmed) return null;
+
+  for (const lookup of bookingLookupCodes(trimmed)) {
+    const booking = await findBookingForCheckIn(lookup);
+    if (booking) return booking;
+  }
+
+  for (const lookup of bookingLookupCodes(trimmed)) {
+    try {
+      const ticket = await promisify<{ booking_id?: string }>((cb) =>
+        ticketClient().GetTicketByCode({ ticket_code: lookup }, cb)
+      );
+      if (ticket?.booking_id) {
+        const booking = await prisma.booking.findUnique({
+          where: { id: ticket.booking_id },
+          include: { passengers: true, voucher: true },
+        });
+        if (booking) return booking;
+      }
+    } catch {
+      /* not a ticket code */
+    }
+  }
+
+  return null;
+}
+
+type BookingForCheckIn = NonNullable<Awaited<ReturnType<typeof findBookingForCheckIn>>> & {
+  voucher?: { name: string } | null;
+};
+
+function evaluateCheckInEligibility(b: BookingForCheckIn) {
+  if (b.status === BOOKING_STATUS.CHECKED_IN || b.status === BOOKING_STATUS.COMPLETED) {
+    return { canCheckIn: false, invalidReason: 'already_checked_in' };
+  }
+  if (b.status === BOOKING_STATUS.CANCELLED) {
+    const wasPaid = b.paymentStatus === 'SUCCESS' || b.paymentStatus === 'PAID';
+    return { canCheckIn: false, invalidReason: wasPaid ? 'refunded' : 'cancelled' };
+  }
+  if (b.status === BOOKING_STATUS.EXPIRED) {
+    return { canCheckIn: false, invalidReason: 'expired' };
+  }
+  if (b.status !== BOOKING_STATUS.TICKET_ISSUED && b.status !== BOOKING_STATUS.PAID) {
+    return { canCheckIn: false, invalidReason: 'not_ready' };
+  }
+  return { canCheckIn: true, invalidReason: '' };
+}
+
+async function buildPrepareCheckInResponse(b: BookingForCheckIn) {
+  if (needsTripEnrichment(b)) {
+    const enriched = await enrichBookingFromTrip(b);
+    const refreshed = await prisma.booking.findUnique({
+      where: { id: enriched.id },
+      include: { passengers: true, voucher: true },
+    });
+    if (refreshed) b = refreshed;
+  }
+
+  const { canCheckIn, invalidReason } = evaluateCheckInEligibility(b);
+  const pricing = voucherFieldsForDetail(b);
+  const firstPassenger = b.passengers[0];
+
+  let ticketCode = '';
+  try {
+    const tickets = await promisify<{ tickets?: Array<{ ticket_code?: string }> }>((cb) =>
+      ticketClient().ListByBooking({ booking_id: b.id }, cb)
+    );
+    ticketCode = tickets.tickets?.[0]?.ticket_code ?? '';
+  } catch {
+    ticketCode = b.passengers.length === 1 ? b.bookingCode : '';
+  }
+
+  return {
+    found: true,
+    can_check_in: canCheckIn,
+    invalid_reason: invalidReason,
+    ticket_code: ticketCode,
+    booking_code: b.bookingCode,
+    status: b.status,
+    buyer_name: firstPassenger?.fullName ?? '',
+    buyer_phone: firstPassenger?.phone ?? '',
+    buyer_email: firstPassenger?.email || b.guestEmail,
+    passengers: b.passengers.map((p) => ({
+      full_name: p.fullName,
+      seat_id: p.seatId,
+    })),
+    seat_count: b.passengers.length,
+    route_name: b.routeName,
+    operator_name: b.operatorName,
+    bus_plate: b.busPlate,
+    departure_time: b.departureTime,
+    pickup_point: b.pickupPoint,
+    dropoff_point: b.dropoffPoint,
+    ticket_subtotal: pricing.ticket_subtotal,
+    service_fee: pricing.service_fee,
+    voucher_code: pricing.voucher_code,
+    voucher_name: b.voucher?.name ?? '',
+    discount_amount: pricing.discount_amount,
+    final_amount: pricing.final_amount,
+    checked_in_at: b.checkedInAt?.toISOString() ?? '',
+    checked_in_by_user_id: b.checkedInByUserId ?? '',
+  };
+}
+
+async function transitionStatus(bookingId: string, from: string, to: string, extra?: { checkedInAt?: Date; checkedInByUserId?: string }) {
   if (!canTransition(from, to)) {
     throw new Error(`Invalid transition: ${from} -> ${to}`);
   }
   await prisma.booking.update({
     where: { id: bookingId },
-    data: { status: to },
+    data: {
+      status: to,
+      ...(extra?.checkedInAt ? { checkedInAt: extra.checkedInAt } : {}),
+      ...(extra?.checkedInByUserId ? { checkedInByUserId: extra.checkedInByUserId } : {}),
+    },
   });
   await prisma.statusLog.create({
     data: { bookingId, fromStatus: from, toStatus: to },
   });
+}
+
+function toValidateVoucherResponse(result: {
+  valid: boolean;
+  message: string;
+  discountAmount: number;
+  ticketSubtotal: number;
+  serviceFee: number;
+  finalAmount: number;
+  voucherCode?: string;
+  voucherName?: string;
+}) {
+  return {
+    valid: result.valid,
+    message: result.message,
+    discount_amount: result.discountAmount,
+    ticket_subtotal: result.ticketSubtotal,
+    service_fee: result.serviceFee,
+    final_amount: result.finalAmount,
+    voucher_code: result.voucherCode ?? '',
+    voucher_name: result.voucherName ?? '',
+  };
 }
 
 function toBookingDetail(b: Awaited<ReturnType<typeof prisma.booking.findUnique>> & { passengers?: unknown[] }) {
@@ -142,6 +439,7 @@ function toBookingDetail(b: Awaited<ReturnType<typeof prisma.booking.findUnique>
     bus_plate: b.busPlate,
     total_amount: b.totalAmount,
     payment_status: b.paymentStatus,
+    ...voucherFieldsForDetail(b as Parameters<typeof voucherFieldsForDetail>[0]),
     passengers: ((b.passengers as Array<{ fullName: string; phone: string; email: string; idNumber?: string; seatId: string }>) || []).map((p) => ({
       full_name: p.fullName,
       phone: p.phone,
@@ -235,9 +533,55 @@ const bookingServiceImpl = {
       };
 
       const seatIds = req.passengers.map((p) => p.seat_id);
-      const totalAmount = seatIds.length * 200000;
+      const holdToken = String(req.hold_token ?? '').trim();
+      if (!holdToken) {
+        return callback({ code: grpc.status.INVALID_ARGUMENT, message: 'Thiếu mã giữ ghế' } as grpc.ServiceError, null);
+      }
+
+      const reused = await prisma.booking.findFirst({
+        where: {
+          holdToken,
+          status: { notIn: [BOOKING_STATUS.EXPIRED, BOOKING_STATUS.CANCELLED] },
+        },
+        include: { passengers: true },
+      });
+      if (reused) {
+        const reusedSeatIds = reused.passengers.map((p) => p.seatId).sort().join(',');
+        const requestedSeatIds = [...seatIds].sort().join(',');
+        if (reused.tripId !== req.trip_id || reusedSeatIds !== requestedSeatIds) {
+          return callback({ code: grpc.status.ALREADY_EXISTS, message: 'Mã giữ ghế đã được sử dụng' } as grpc.ServiceError, null);
+        }
+        if (reused.status === BOOKING_STATUS.PENDING_PAYMENT) {
+          const deadline = reused.paymentDeadline
+            ? Math.max(0, Math.floor((reused.paymentDeadline.getTime() - Date.now()) / 1000))
+            : 0;
+          return callback(null, {
+            booking_id: reused.id,
+            booking_code: reused.bookingCode,
+            status: reused.status,
+            total_amount: reused.totalAmount,
+            payment_deadline_seconds: deadline,
+          });
+        }
+        return callback({ code: grpc.status.ALREADY_EXISTS, message: 'Đơn đặt vé này đã được xử lý' } as grpc.ServiceError, null);
+      }
+
+      await validateHoldForBooking(req.trip_id, holdToken, seatIds);
+
       const trip = await fetchTripMeta(req.trip_id);
-      const guestEmail = req.guest_email.trim().toLowerCase();
+      if (trip.pricePerSeat <= 0) {
+        return callback({ code: grpc.status.FAILED_PRECONDITION, message: 'Không xác định được giá vé chuyến' } as grpc.ServiceError, null);
+      }
+      const pricing = computeBookingPricing(seatIds.length, trip.pricePerSeat);
+      let guestEmail = '';
+      try {
+        guestEmail = sanitizeOptionalEmail(req.guest_email);
+      } catch (err) {
+        return callback(
+          { code: grpc.status.INVALID_ARGUMENT, message: (err as Error).message } as grpc.ServiceError,
+          null
+        );
+      }
 
       const booking = await prisma.booking.create({
         data: {
@@ -245,10 +589,13 @@ const bookingServiceImpl = {
           tripId: req.trip_id,
           userId: req.user_id,
           guestEmail,
-          holdToken: req.hold_token,
+          holdToken: holdToken,
           status: BOOKING_STATUS.PENDING_PAYMENT,
           paymentStatus: 'PENDING',
-          totalAmount,
+          ticketSubtotal: pricing.ticketTotal,
+          serviceFee: pricing.serviceFee,
+          discountAmount: 0,
+          totalAmount: pricing.grandTotal,
           paymentDeadline: new Date(Date.now() + 15 * 60 * 1000),
           routeName: trip.routeName,
           origin: trip.origin,
@@ -262,7 +609,7 @@ const bookingServiceImpl = {
             create: req.passengers.map((p) => ({
               fullName: p.full_name,
               phone: p.phone,
-              email: p.email.trim().toLowerCase(),
+              email: sanitizeOptionalEmail(p.email),
               idNumber: p.id_number,
               seatId: p.seat_id,
             })),
@@ -286,14 +633,14 @@ const bookingServiceImpl = {
         bookingId: booking.id,
         bookingCode: booking.bookingCode,
         tripId: req.trip_id,
-        totalAmount,
+        totalAmount: pricing.grandTotal,
       });
 
       callback(null, {
         booking_id: booking.id,
         booking_code: booking.bookingCode,
         status: BOOKING_STATUS.PENDING_PAYMENT,
-        total_amount: totalAmount,
+        total_amount: pricing.grandTotal,
         payment_deadline_seconds: 900,
       });
     } catch (err) {
@@ -324,12 +671,13 @@ const bookingServiceImpl = {
   },
 
   GetBookingByCode: async (
-    call: grpc.ServerUnaryCall<{ booking_code: string; email?: string }, unknown>,
+    call: grpc.ServerUnaryCall<{ booking_code: string; email?: string; phone?: string }, unknown>,
     callback: grpc.sendUnaryData<unknown>
   ) => {
     try {
       const code = normalizeCode(call.request.booking_code);
       const emailNorm = call.request.email?.trim().toLowerCase();
+      const phoneNorm = call.request.phone ? normalizePhoneDigits(call.request.phone) : '';
 
       let b = await prisma.booking.findFirst({
         where: { bookingCode: { equals: code, mode: 'insensitive' } },
@@ -337,7 +685,7 @@ const bookingServiceImpl = {
       });
 
       if (!b) {
-        console.log('[LOOKUP BOOKING]', { bookingId: code, email: emailNorm, recordCount: 0 });
+        console.log('[LOOKUP BOOKING]', { bookingId: code, email: emailNorm, phone: phoneNorm, recordCount: 0 });
         return callback({ code: grpc.status.NOT_FOUND, message: 'Không tìm thấy vé' } as grpc.ServiceError, null);
       }
 
@@ -345,13 +693,11 @@ const bookingServiceImpl = {
         b = await enrichBookingFromTrip(b);
       }
 
-      if (emailNorm) {
-        const guestMatch = b.guestEmail.toLowerCase() === emailNorm;
-        const passengerMatch = b.passengers.some((p) => p.email.toLowerCase() === emailNorm);
-        if (!guestMatch && !passengerMatch) {
-          console.log('[LOOKUP BOOKING]', { bookingId: b.id, email: emailNorm, recordCount: 0 });
-          return callback({ code: grpc.status.NOT_FOUND, message: 'Mã vé và email không khớp' } as grpc.ServiceError, null);
-        }
+      try {
+        verifyBookingLookup(b, emailNorm, phoneNorm);
+      } catch (err) {
+        console.log('[LOOKUP BOOKING]', { bookingId: b.id, email: emailNorm, phone: phoneNorm, recordCount: 0 });
+        return callback({ code: grpc.status.NOT_FOUND, message: (err as Error).message } as grpc.ServiceError, null);
       }
 
       console.log('[LOOKUP BOOKING]', {
@@ -411,7 +757,7 @@ const bookingServiceImpl = {
       if (seatIds.length > 0) {
         const seatClient_ = seatClient();
         await new Promise<void>((resolve, reject) => {
-          seatClient_.UnbookSeats({ trip_id: b.tripId, seat_ids: seatIds }, (err: Error | null, res) => {
+          seatClient_.UnbookSeats({ trip_id: b.tripId, seat_ids: seatIds }, (err: Error | null, res: { success: boolean; message?: string } | null) => {
             if (err) reject(err);
             else if (!res?.success) reject(new Error(res?.message || 'Không giải phóng được ghế'));
             else resolve();
@@ -440,25 +786,64 @@ const bookingServiceImpl = {
     callback: grpc.sendUnaryData<unknown>
   ) => {
     try {
-      const code = normalizeCode(call.request.booking_code);
+      const code = normalizeCode(splitCompositeTicketRef(call.request.booking_code).bookingRef);
       const b = await prisma.booking.findFirst({
         where: { bookingCode: { equals: code, mode: 'insensitive' } },
       });
       if (!b) return callback(null, { success: false, message: 'Booking không tồn tại' });
+      if (b.status === BOOKING_STATUS.CHECKED_IN || b.status === BOOKING_STATUS.COMPLETED) {
+        return callback(null, { success: false, message: 'Vé đã được check-in' });
+      }
+      if (b.status === BOOKING_STATUS.CANCELLED) {
+        return callback(null, { success: false, message: 'Vé đã bị hủy' });
+      }
       if (b.status !== BOOKING_STATUS.TICKET_ISSUED && b.status !== BOOKING_STATUS.PAID) {
         return callback(null, { success: false, message: 'Booking chưa sẵn sàng check-in' });
       }
-      await transitionStatus(b.id, b.status, BOOKING_STATUS.CHECKED_IN);
+      const staffId = call.request.staff_id?.trim() || 'staff';
+      await transitionStatus(b.id, b.status, BOOKING_STATUS.CHECKED_IN, {
+        checkedInAt: new Date(),
+        checkedInByUserId: staffId,
+      });
       await publishBookingEvent(KAFKA_BROKERS, 'booking.checked_in', {
         bookingId: b.id,
-        staffId: call.request.staff_id,
+        staffId,
       });
       logEvent(logger, 'check-in', {
         requestId: getGrpcRequestId(call),
         bookingCode: call.request.booking_code,
-        staffId: call.request.staff_id,
+        staffId,
       });
       callback(null, { success: true, message: 'Check-in thành công' });
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  PrepareCheckIn: async (
+    call: grpc.ServerUnaryCall<{ ref: string }, unknown>,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const ref = call.request.ref?.trim();
+      if (!ref) {
+        return callback(null, {
+          found: false,
+          can_check_in: false,
+          invalid_reason: 'empty_ref',
+        });
+      }
+
+      const booking = await resolveBookingByRef(ref);
+      if (!booking) {
+        return callback(null, {
+          found: false,
+          can_check_in: false,
+          invalid_reason: 'not_found',
+        });
+      }
+
+      callback(null, await buildPrepareCheckInResponse(booking));
     } catch (err) {
       callback(err as grpc.ServiceError, null);
     }
@@ -472,15 +857,8 @@ const bookingServiceImpl = {
       const userId = call.request.user_id;
       const emailNorm = call.request.email?.trim().toLowerCase();
 
-      const orFilters: Array<Record<string, unknown>> = [];
-      if (userId) orFilters.push({ userId });
-      if (emailNorm) {
-        orFilters.push({ guestEmail: { equals: emailNorm, mode: 'insensitive' } });
-        orFilters.push({ passengers: { some: { email: { equals: emailNorm, mode: 'insensitive' } } } });
-      }
-
       const bookings = await prisma.booking.findMany({
-        where: orFilters.length > 0 ? { OR: orFilters } : { userId },
+        where: { userId },
         include: { passengers: true },
         orderBy: { createdAt: 'desc' },
       });
@@ -565,12 +943,22 @@ const bookingServiceImpl = {
       });
 
       const bookingsSold = paidBookings.reduce((sum, b) => sum + b.passengers.length, 0);
+      const dailyMap = new Map<string, { revenue: number; bookingCount: number }>();
+      let totalRevenue = 0;
 
       const routeMap = new Map<string, { count: number; revenue: number }>();
       const operatorMap = new Map<string, { count: number; revenue: number }>();
       const customerMap = new Map<string, { count: number; revenue: number; name: string }>();
 
       for (const b of paidBookings) {
+        const amount = Math.round(b.totalAmount);
+        totalRevenue += amount;
+        const dayKey = formatDateVN(b.createdAt);
+        const day = dailyMap.get(dayKey) || { revenue: 0, bookingCount: 0 };
+        day.revenue += amount;
+        day.bookingCount += b.passengers.length || 1;
+        dailyMap.set(dayKey, day);
+
         const perSeat = b.passengers.length > 0 ? b.totalAmount / b.passengers.length : b.totalAmount;
         for (const p of b.passengers) {
           const route = b.routeName || 'Khác';
@@ -605,6 +993,7 @@ const bookingServiceImpl = {
 
       const recentOrders = paidBookings.slice(0, ordersLimit).flatMap((b) =>
         b.passengers.map((p) => ({
+          ticket_code: b.passengers.length === 1 ? b.bookingCode : `${b.bookingCode}-${p.seatId}`,
           booking_code: b.bookingCode,
           customer_name: p.fullName,
           route_name: b.routeName,
@@ -630,6 +1019,14 @@ const bookingServiceImpl = {
         top_operators: toRank(operatorMap),
         top_customers: toRank(customerMap, true),
         recent_orders: recentOrders.slice(0, ordersLimit),
+        total_revenue: totalRevenue,
+        daily_revenue: Array.from(dailyMap.entries())
+          .map(([date, v]) => ({
+            date,
+            revenue: v.revenue,
+            booking_count: v.bookingCount,
+          }))
+          .sort((a, b) => a.date.localeCompare(b.date)),
       });
     } catch (err) {
       callback(err as grpc.ServiceError, null);
@@ -663,16 +1060,112 @@ const bookingServiceImpl = {
   },
 
   ProcessPayment: async (
-    call: grpc.ServerUnaryCall<{ booking_id: string; simulate_success: boolean }, unknown>,
+    call: grpc.ServerUnaryCall<
+      {
+        booking_id: string;
+        simulate_success: boolean;
+        user_id?: string;
+        guest_email?: string;
+        guest_phone?: string;
+        voucher_code?: string;
+      },
+      unknown
+    >,
     callback: grpc.sendUnaryData<unknown>
   ) => {
     try {
       const result = await processPayment(
         call.request.booking_id,
-        call.request.simulate_success,
+        {
+          userId: call.request.user_id,
+          guestEmail: call.request.guest_email,
+          guestPhone: call.request.guest_phone,
+          voucherCode: call.request.voucher_code,
+        },
         `pay:${call.request.booking_id}`
       );
       callback(null, result);
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  ValidateVoucher: async (
+    call: grpc.ServerUnaryCall<
+      { booking_id: string; code: string; user_id?: string; guest_email?: string },
+      unknown
+    >,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const booking = await prisma.booking.findUnique({
+        where: { id: call.request.booking_id },
+        include: { passengers: true },
+      });
+      if (!booking) {
+        return callback({ code: grpc.status.NOT_FOUND, message: 'Booking not found' } as grpc.ServiceError, null);
+      }
+      try {
+        assertPaymentAccess(booking, call.request.user_id, call.request.guest_email);
+      } catch (err) {
+        return callback({ code: grpc.status.PERMISSION_DENIED, message: err instanceof Error ? err.message : 'Forbidden' } as grpc.ServiceError, null);
+      }
+
+      const result = await validateVoucherForBooking(
+        prisma,
+        booking,
+        call.request.code,
+        call.request.user_id
+      );
+
+      callback(null, toValidateVoucherResponse(result));
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  ListAvailableVouchers: async (
+    call: grpc.ServerUnaryCall<{ booking_id: string; user_id?: string }, unknown>,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const booking = await prisma.booking.findUnique({
+        where: { id: call.request.booking_id },
+        include: { passengers: true },
+      });
+      if (!booking) {
+        return callback({ code: grpc.status.NOT_FOUND, message: 'Booking not found' } as grpc.ServiceError, null);
+      }
+      const vouchers = await listAvailableVouchersForBooking(prisma, booking, call.request.user_id);
+      callback(null, { vouchers });
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  ApplyVoucher: async (
+    call: grpc.ServerUnaryCall<
+      { booking_id: string; code: string; user_id?: string; guest_email?: string },
+      unknown
+    >,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const booking = await prisma.booking.findUnique({
+        where: { id: call.request.booking_id },
+        include: { passengers: true },
+      });
+      if (!booking) {
+        return callback({ code: grpc.status.NOT_FOUND, message: 'Booking not found' } as grpc.ServiceError, null);
+      }
+      assertPaymentAccess(booking, call.request.user_id, call.request.guest_email);
+      const result = await applyVoucherToBookingRecord(
+        prisma,
+        call.request.booking_id,
+        call.request.code,
+        call.request.user_id
+      );
+      callback(null, toValidateVoucherResponse(result));
     } catch (err) {
       callback(err as grpc.ServiceError, null);
     }
@@ -690,6 +1183,106 @@ const bookingServiceImpl = {
         await transitionStatus(b.id, b.status, BOOKING_STATUS.TICKET_ISSUED);
       }
       callback(null, { success: true });
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  SubmitReview: async (
+    call: grpc.ServerUnaryCall<
+      { booking_id: string; user_id: string; reviewer_name?: string; rating: number; comment: string },
+      unknown
+    >,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const { booking_id, user_id, reviewer_name, rating, comment } = call.request;
+      const result = await submitReview(prisma, {
+        bookingId: booking_id,
+        userId: user_id,
+        reviewerName: reviewer_name,
+        rating,
+        comment,
+      });
+      callback(null, result);
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  GetReviewByBooking: async (
+    call: grpc.ServerUnaryCall<{ booking_id: string; user_id?: string }, unknown>,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const review = await getReviewByBooking(prisma, call.request.booking_id, call.request.user_id);
+      callback(null, review || {});
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  ListUserReviews: async (
+    call: grpc.ServerUnaryCall<{ user_id: string }, unknown>,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const reviews = await listUserReviews(prisma, call.request.user_id);
+      callback(null, { reviews });
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  ListTripReviews: async (
+    call: grpc.ServerUnaryCall<{ trip_id: string; limit?: number }, unknown>,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const reviews = await listTripReviews(prisma, call.request.trip_id, call.request.limit || 20);
+      callback(null, { reviews });
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  ListFeaturedReviews: async (
+    call: grpc.ServerUnaryCall<{ limit?: number }, unknown>,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const reviews = await listFeaturedReviews(prisma, call.request.limit || 6);
+      callback(null, { reviews });
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  GetTripRatingSummary: async (
+    call: grpc.ServerUnaryCall<{ trip_id: string }, unknown>,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const summary = await getTripRatingSummary(prisma, call.request.trip_id);
+      callback(null, summary);
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  GetReviewSatisfactionStats: async (_call: grpc.ServerUnaryCall<unknown, unknown>, callback: grpc.sendUnaryData<unknown>) => {
+    try {
+      const stats = await getReviewSatisfactionStats(prisma);
+      callback(null, stats);
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  GetOperatorReviewSummaries: async (_call: grpc.ServerUnaryCall<unknown, unknown>, callback: grpc.sendUnaryData<unknown>) => {
+    try {
+      const summaries = await getOperatorReviewSummaries(prisma);
+      callback(null, { summaries });
     } catch (err) {
       callback(err as grpc.ServiceError, null);
     }
@@ -725,14 +1318,20 @@ const bookingServiceImpl = {
 
 export async function processPayment(
   bookingId: string,
-  simulateSuccess: boolean,
+  auth: { userId?: string; guestEmail?: string; guestPhone?: string; voucherCode?: string },
   idempotencyKey?: string
 ): Promise<{ success: boolean; message: string }> {
-  const booking = await prisma.booking.findUnique({
+  let booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { passengers: true },
   });
   if (!booking) return { success: false, message: 'Booking not found' };
+
+  try {
+    assertPaymentAccess(booking, auth.userId, auth.guestEmail, auth.guestPhone);
+  } catch (err) {
+    return { success: false, message: err instanceof Error ? err.message : 'Forbidden' };
+  }
 
   if (booking.status === BOOKING_STATUS.PAID || booking.status === BOOKING_STATUS.TICKET_ISSUED) {
     return { success: true, message: 'Booking đã thanh toán (idempotent)' };
@@ -741,15 +1340,74 @@ export async function processPayment(
     return { success: false, message: 'Booking không ở trạng thái chờ thanh toán' };
   }
 
+  if (booking.voucherCode) {
+    const voucherCheck = await validateVoucherForBooking(
+      prisma,
+      booking,
+      booking.voucherCode,
+      auth.userId
+    );
+    if (!voucherCheck.valid) {
+      return { success: false, message: voucherCheck.message };
+    }
+    if (voucherCheck.finalAmount !== booking.totalAmount) {
+      await prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          discountAmount: voucherCheck.discountAmount,
+          totalAmount: voucherCheck.finalAmount,
+        },
+      });
+      booking.totalAmount = voucherCheck.finalAmount;
+    }
+  } else if (auth.voucherCode?.trim()) {
+    const applied = await applyVoucherToBookingRecord(prisma, bookingId, auth.voucherCode, auth.userId);
+    if (!applied.valid) {
+      return { success: false, message: applied.message };
+    }
+    booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { passengers: true },
+    });
+    if (!booking) return { success: false, message: 'Booking not found' };
+  }
+
+  const activeBooking = booking;
+  const seatIds = activeBooking.passengers.map((p) => p.seatId);
+  const seatClient_ = seatClient();
+  const confirmResult = await new Promise<{ success: boolean; message: string }>((resolve, reject) => {
+    seatClient_.ConfirmSeats(
+      {
+        trip_id: activeBooking.tripId,
+        seat_ids: seatIds,
+        hold_token: activeBooking.holdToken || '',
+        booking_id: bookingId,
+      },
+      (err: Error | null, res: { success: boolean; message?: string } | null) => {
+        if (err) reject(err);
+        else resolve({ success: !!res?.success, message: res?.message || 'Xác nhận ghế thất bại' });
+      }
+    );
+  });
+
+  if (!confirmResult.success) {
+    return { success: false, message: confirmResult.message };
+  }
+
+  const allowSimulate = process.env.ALLOW_SIMULATE_PAYMENT === 'true';
+  if (!allowSimulate) {
+    return { success: false, message: 'Cổng thanh toán chưa được cấu hình' };
+  }
+
   const payClient = paymentClient();
   const paymentResult = await new Promise<{ success: boolean; status: string; payment_id: string; message: string }>(
     (resolve, reject) => {
       payClient.ProcessPayment(
         {
           booking_id: bookingId,
-          booking_code: booking.bookingCode,
-          amount: booking.totalAmount,
-          simulate_success: simulateSuccess,
+          booking_code: activeBooking.bookingCode,
+          amount: activeBooking.totalAmount,
+          simulate_success: true,
           idempotency_key: idempotencyKey || `pay:${bookingId}`,
         },
         (err: Error | null, res: { success: boolean; status: string; payment_id: string; message: string }) =>
@@ -759,6 +1417,11 @@ export async function processPayment(
   );
 
   if (!paymentResult.success) {
+    await new Promise<void>((resolve, reject) => {
+      seatClient_.UnbookSeats({ trip_id: activeBooking.tripId, seat_ids: seatIds }, (err: Error | null, res: { success: boolean } | null) =>
+        err ? reject(err) : resolve()
+      );
+    });
     return { success: false, message: paymentResult.message };
   }
 
@@ -768,21 +1431,14 @@ export async function processPayment(
     data: { paymentStatus: 'PAID' },
   });
 
-  const seatIds = booking.passengers.map((p) => p.seatId);
-  const seatClient_ = seatClient();
-  await new Promise<void>((resolve, reject) => {
-    seatClient_.ConfirmSeats(
-      {
-        trip_id: booking.tripId,
-        seat_ids: seatIds,
-        hold_token: booking.holdToken || '',
-        booking_id: bookingId,
-      },
-      (err: Error | null) => (err ? reject(err) : resolve())
-    );
-  });
+  await redeemVoucherForBooking(prisma, bookingId);
 
   await transitionStatus(bookingId, BOOKING_STATUS.PAID, BOOKING_STATUS.TICKET_ISSUED);
+
+  booking = (await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { passengers: true },
+  }))!;
 
   if (needsTripEnrichment(booking)) {
     const enriched = await enrichBookingFromTrip(booking);
@@ -794,9 +1450,15 @@ export async function processPayment(
     bookingCode: booking.bookingCode,
     tripId: booking.tripId,
     userId: booking.userId,
-    guestEmail: booking.guestEmail,
+    ...(booking.guestEmail.trim() ? { guestEmail: booking.guestEmail } : {}),
     passengers: booking.passengers,
     totalAmount: booking.totalAmount,
+    ticketSubtotal: booking.ticketSubtotal,
+    serviceFee: booking.serviceFee,
+    discountAmount: booking.discountAmount,
+    voucherCode: booking.voucherCode,
+    voucherId: booking.voucherId,
+    finalAmount: booking.totalAmount,
   });
 
   logEvent(logger, 'booking.paid', {
@@ -860,10 +1522,16 @@ if (require.main === module) {
     defaultPort: 9105,
     checkDb: async () => {
       await prisma.$queryRaw`SELECT 1`;
+      await ensureVoucherSeed(prisma);
       return true;
     },
   });
-  startServer();
+  void ensureVoucherSeed(prisma)
+    .then(() => startServer())
+    .catch((err) => {
+      console.error('Voucher seed failed:', err);
+      startServer();
+    });
 }
 
 export { bookingServiceImpl, prisma, matchesFilter, matchesSearch, toBookingDetail, findBookingByRef };

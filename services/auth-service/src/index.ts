@@ -8,7 +8,12 @@ import { hashPassword, isBcryptHash, verifyPassword } from './password';
 
 const prisma = new PrismaClient();
 const logger = createLogger('auth-service');
-const JWT_SECRET = process.env.JWT_SECRET || 'bus-booking-jwt-secret-change-in-prod';
+const JWT_SECRET_RAW = process.env.JWT_SECRET;
+if (!JWT_SECRET_RAW || JWT_SECRET_RAW.length < 32) {
+  console.error('FATAL: JWT_SECRET must be set in environment (minimum 32 characters).');
+  process.exit(1);
+}
+const JWT_SECRET: string = JWT_SECRET_RAW;
 const GRPC_PORT = process.env.GRPC_PORT || '50051';
 
 function logAuthConfig() {
@@ -170,6 +175,10 @@ const authServiceImpl = {
 };
 
 async function seedUsers() {
+  if (process.env.SEED_DEMO_ACCOUNTS !== 'true') {
+    logger.info('Skipping demo account seed (set SEED_DEMO_ACCOUNTS=true to enable)');
+    return;
+  }
   await prisma.user.upsert({
     where: { email: 'admin@bus.demo' },
     update: { role: USER_ROLES.ADMIN },

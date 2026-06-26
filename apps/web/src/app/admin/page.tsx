@@ -121,8 +121,9 @@ export default function AdminDashboardPage() {
           accent="from-cyan-500 to-blue-600"
         />
         <StatCard
-          label="Chuyến hoạt động"
+          label="Chuyến hôm nay"
           value={stats.activeTrips.toLocaleString('vi-VN')}
+          hint="Đang chạy & sắp khởi hành"
           icon={Bus}
           accent="from-emerald-500 to-teal-600"
         />

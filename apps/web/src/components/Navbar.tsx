@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -80,6 +80,11 @@ export default function Navbar() {
 
   const showLoginBtn = !isLoggedIn && pathname !== '/login';
 
+  const navLinks = useMemo(
+    () => (isLoggedIn ? NAV_LINKS : NAV_LINKS.filter((link) => link.href !== '/my-tickets')),
+    [isLoggedIn]
+  );
+
   return (
     <header className="sticky top-0 z-50 px-4 pt-3 sm:px-6">
       <div
@@ -93,7 +98,7 @@ export default function Navbar() {
         />
 
         <nav className="hidden items-center gap-1 md:flex">
-          {NAV_LINKS.map(({ href, label }) => (
+          {navLinks.map(({ href, label }) => (
             <Link
               key={href}
               href={href}
@@ -149,7 +154,7 @@ export default function Navbar() {
           >
             <div className="rounded-[20px] border border-white/60 bg-white/90 p-3 shadow-lg backdrop-blur-xl">
               <nav className="space-y-1">
-                {NAV_LINKS.map(({ href, label, icon: Icon }) => (
+                {navLinks.map(({ href, label, icon: Icon }) => (
                   <Link
                     key={href}
                     href={href}

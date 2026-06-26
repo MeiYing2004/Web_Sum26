@@ -43,6 +43,8 @@ export type AdminTrip = {
   arrivalTime: string;
   price: number;
   status: string;
+  displayStatus?: string;
+  displayStatusLabel?: string;
   pickupPoint: string;
   dropoffPoint: string;
   cancellationPolicy: string;
@@ -60,11 +62,13 @@ export const TRIP_STATUS_OPTIONS = [
 ] as const;
 
 export const TRIP_STATUS_LABEL: Record<string, string> = {
-  ACTIVE: 'Đang bán',
+  ACTIVE: 'Đang mở bán',
   INACTIVE: 'Tạm khóa',
   DEPARTED: 'Đã khởi hành',
   COMPLETED: 'Hoàn thành',
   CANCELLED: 'Đã hủy',
+  UPCOMING: 'Sắp khởi hành',
+  SELLING: 'Đang mở bán',
 };
 
 export function formatPrice(n: number) {

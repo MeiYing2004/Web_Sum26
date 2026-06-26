@@ -10,6 +10,7 @@ service BookingService {
   rpc GetBookingByCode(GetBookingByCodeRequest) returns (BookingDetail);
   rpc CancelBooking(CancelBookingRequest) returns (CancelBookingResponse);
   rpc CheckIn(CheckInRequest) returns (CheckInResponse);
+  rpc PrepareCheckIn(PrepareCheckInRequest) returns (PrepareCheckInResponse);
   rpc ListUserBookings(ListUserBookingsRequest) returns (ListUserBookingsResponse);
   rpc ListBookingsByTrip(ListBookingsByTripRequest) returns (ListBookingsByTripResponse);
   rpc ExpirePendingBookings(ExpirePendingRequest) returns (ExpirePendingResponse);
@@ -17,6 +18,17 @@ service BookingService {
   rpc MarkTicketIssued(MarkTicketIssuedRequest) returns (MarkTicketIssuedResponse);
   rpc GetAdminInsights(GetAdminInsightsRequest) returns (GetAdminInsightsResponse);
   rpc ListAdminEventLogs(ListAdminEventLogsRequest) returns (ListAdminEventLogsResponse);
+  rpc SubmitReview(SubmitReviewRequest) returns (SubmitReviewResponse);
+  rpc GetReviewByBooking(GetReviewByBookingRequest) returns (ReviewDetail);
+  rpc ListUserReviews(ListUserReviewsRequest) returns (ListUserReviewsResponse);
+  rpc ListTripReviews(ListTripReviewsRequest) returns (ListTripReviewsResponse);
+  rpc ListFeaturedReviews(ListFeaturedReviewsRequest) returns (ListFeaturedReviewsResponse);
+  rpc GetTripRatingSummary(GetTripRatingSummaryRequest) returns (TripRatingSummary);
+  rpc GetReviewSatisfactionStats(GetReviewSatisfactionStatsRequest) returns (GetReviewSatisfactionStatsResponse);
+  rpc GetOperatorReviewSummaries(GetOperatorReviewSummariesRequest) returns (GetOperatorReviewSummariesResponse);
+  rpc ValidateVoucher(ValidateVoucherRequest) returns (ValidateVoucherResponse);
+  rpc ApplyVoucher(ApplyVoucherRequest) returns (ValidateVoucherResponse);
+  rpc ListAvailableVouchers(ListAvailableVouchersRequest) returns (ListAvailableVouchersResponse);
 }
 
 message MarkTicketIssuedRequest {
@@ -30,6 +42,10 @@ message MarkTicketIssuedResponse {
 message ProcessPaymentRequest {
   string booking_id = 1;
   bool simulate_success = 2;
+  optional string user_id = 3;
+  optional string guest_email = 4;
+  optional string guest_phone = 6;
+  optional string voucher_code = 5;
 }
 
 message ProcessPaymentResponse {
@@ -80,6 +96,7 @@ message GetBookingRequest {
 message GetBookingByCodeRequest {
   string booking_code = 1;
   optional string email = 2;
+  optional string phone = 3;
 }
 
 message BookingDetail {
@@ -101,6 +118,11 @@ message BookingDetail {
   string dropoff_point = 16;
   string bus_plate = 17;
   string payment_status = 18;
+  double ticket_subtotal = 19;
+  double service_fee = 20;
+  double discount_amount = 21;
+  string voucher_code = 22;
+  string voucher_id = 23;
 }
 
 message GetAdminInsightsRequest {
@@ -125,6 +147,13 @@ message AdminOrderRow {
   double total_amount = 7;
   string status = 8;
   string created_at = 9;
+  string ticket_code = 10;
+}
+
+message AdminDailyRevenueRow {
+  string date = 1;
+  double revenue = 2;
+  int32 booking_count = 3;
 }
 
 message GetAdminInsightsResponse {
@@ -133,6 +162,8 @@ message GetAdminInsightsResponse {
   repeated AdminRankRow top_operators = 3;
   repeated AdminRankRow top_customers = 4;
   repeated AdminOrderRow recent_orders = 5;
+  double total_revenue = 6;
+  repeated AdminDailyRevenueRow daily_revenue = 7;
 }
 
 message CancelBookingRequest {
@@ -174,6 +205,43 @@ message CheckInResponse {
   string message = 2;
 }
 
+message PrepareCheckInRequest {
+  string ref = 1;
+}
+
+message CheckInPassengerRow {
+  string full_name = 1;
+  string seat_id = 2;
+}
+
+message PrepareCheckInResponse {
+  bool found = 1;
+  bool can_check_in = 2;
+  string invalid_reason = 3;
+  string ticket_code = 4;
+  string booking_code = 5;
+  string status = 6;
+  string buyer_name = 7;
+  string buyer_phone = 8;
+  string buyer_email = 9;
+  repeated CheckInPassengerRow passengers = 10;
+  int32 seat_count = 11;
+  string route_name = 12;
+  string operator_name = 13;
+  string bus_plate = 14;
+  string departure_time = 15;
+  string pickup_point = 16;
+  string dropoff_point = 17;
+  double ticket_subtotal = 18;
+  double service_fee = 19;
+  string voucher_code = 20;
+  string voucher_name = 21;
+  double discount_amount = 22;
+  double final_amount = 23;
+  string checked_in_at = 24;
+  string checked_in_by_user_id = 25;
+}
+
 message ListUserBookingsRequest {
   string user_id = 1;
   optional string email = 2;
@@ -199,4 +267,137 @@ message ExpirePendingRequest {}
 
 message ExpirePendingResponse {
   int32 expired_count = 1;
+}
+
+message SubmitReviewRequest {
+  string booking_id = 1;
+  string user_id = 2;
+  string reviewer_name = 3;
+  int32 rating = 4;
+  string comment = 5;
+}
+
+message SubmitReviewResponse {
+  bool success = 1;
+  string message = 2;
+  ReviewDetail review = 3;
+}
+
+message GetReviewByBookingRequest {
+  string booking_id = 1;
+  string user_id = 2;
+}
+
+message ListUserReviewsRequest {
+  string user_id = 1;
+}
+
+message ListUserReviewsResponse {
+  repeated ReviewDetail reviews = 1;
+}
+
+message ListTripReviewsRequest {
+  string trip_id = 1;
+  int32 limit = 2;
+}
+
+message ListTripReviewsResponse {
+  repeated ReviewDetail reviews = 1;
+}
+
+message ListFeaturedReviewsRequest {
+  int32 limit = 1;
+}
+
+message ListFeaturedReviewsResponse {
+  repeated ReviewDetail reviews = 1;
+}
+
+message GetTripRatingSummaryRequest {
+  string trip_id = 1;
+}
+
+message TripRatingSummary {
+  string trip_id = 1;
+  double average_rating = 2;
+  int32 review_count = 3;
+}
+
+message GetReviewSatisfactionStatsRequest {}
+
+message GetReviewSatisfactionStatsResponse {
+  int32 total_reviews = 1;
+  int32 satisfied_reviews = 2;
+  optional double satisfaction_percent = 3;
+}
+
+message GetOperatorReviewSummariesRequest {}
+
+message OperatorReviewSummary {
+  string operator_name = 1;
+  double average_rating = 2;
+  int32 review_count = 3;
+  optional double satisfaction_percent = 4;
+}
+
+message GetOperatorReviewSummariesResponse {
+  repeated OperatorReviewSummary summaries = 1;
+}
+
+message ReviewDetail {
+  string id = 1;
+  string booking_id = 2;
+  string user_id = 3;
+  string trip_id = 4;
+  string reviewer_name = 5;
+  string route_name = 6;
+  string origin = 7;
+  string destination = 8;
+  int32 rating = 9;
+  string comment = 10;
+  string created_at = 11;
+}
+
+message ValidateVoucherRequest {
+  string booking_id = 1;
+  string code = 2;
+  optional string user_id = 3;
+  optional string guest_email = 4;
+}
+
+message ApplyVoucherRequest {
+  string booking_id = 1;
+  string code = 2;
+  optional string user_id = 3;
+  optional string guest_email = 4;
+}
+
+message ValidateVoucherResponse {
+  bool valid = 1;
+  string message = 2;
+  double discount_amount = 3;
+  double ticket_subtotal = 4;
+  double service_fee = 5;
+  double final_amount = 6;
+  string voucher_code = 7;
+  string voucher_name = 8;
+}
+
+message ListAvailableVouchersRequest {
+  string booking_id = 1;
+  optional string user_id = 2;
+}
+
+message AvailableVoucherRow {
+  string code = 1;
+  string name = 2;
+  string description = 3;
+  string discount_label = 4;
+  double min_order_value = 5;
+  optional double max_discount = 6;
+  string valid_until = 7;
+}
+
+message ListAvailableVouchersResponse {
+  repeated AvailableVoucherRow vouchers = 1;
 }

@@ -17,10 +17,13 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SeatMapGrid } from '@/components/SeatMapGrid';
+import { resolveGraphqlUrl, resolveWsGraphqlUrl } from '@/lib/api-url';
+import { isValidPhoneNumber } from '@/lib/phone';
+import { isValidOptionalEmail } from '@/lib/email';
 import { gql } from '@/lib/graphql';
 import { getSessionId } from '@/lib/session';
-import { departureDateVN } from '@/lib/datetime';
-import { getTripAvailability } from '@/lib/trip-availability';
+import { useAuth } from '@/hooks/useAuth';
+import { nonBookableButtonLabel, enrichTripDetailAvailability, isMissingBookableFieldError, TRIP_DETAIL_BASE_FIELDS, TRIP_DETAIL_AVAILABILITY_FIELDS } from '@/lib/trip-availability';
 import { TripAvailabilityBadge } from '@/components/TripAvailabilityBadge';
 import { BookingProgress } from '@/components/domain/BookingProgress';
 import { BookingSeatSummary } from '@/components/domain/BookingSeatSummary';
@@ -33,11 +36,9 @@ import { PageShell } from '@/components/ui/PageShell';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Skeleton } from '@/components/ui/Skeleton';
+import { SkeletonTripDetail } from '@/components/ui/Skeleton';
 
-const GRAPHQL_URL = process.env.NEXT_PUBLIC_GRAPHQL_URL || 'http://localhost:4000/graphql';
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:4000/graphql';
-const SERVICE_FEE_RATE = 0.02;
+const SERVICE_FEE_RATE = 0.02; // mirrors @bus/shared BOOKING_SERVICE_FEE_RATE
 
 type FlowStep = 'seat' | 'passenger';
 
@@ -56,6 +57,10 @@ type TripInfo = {
   arrivalTime: string;
   totalSeats: number;
   cancellationPolicy: string;
+  status?: string;
+  bookable?: boolean;
+  availabilityStatus?: string;
+  availabilityLabel?: string;
 };
 
 type SeatLayout = { type: string; floors: Array<{ label?: string; rows: string[][] }> };
@@ -93,6 +98,7 @@ export default function TripDetailPage() {
   const tripId = useMemo(() => normalizeTripId(params.id), [params.id]);
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { isLoggedIn, user } = useAuth();
   const promoCode = (searchParams.get('promo') || '').trim().toUpperCase();
 
   const [trip, setTrip] = useState<TripInfo | null>(null);
@@ -112,6 +118,15 @@ export default function TripDetailPage() {
   const [tripBlocked, setTripBlocked] = useState<string | null>(null);
   const holdTokenRef = useRef('');
   const selectedRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !user) return;
+    setBooker((prev) => ({
+      fullName: prev.fullName.trim() || user.fullName || '',
+      phone: prev.phone.trim() || '',
+      email: prev.email.trim() || user.email || '',
+    }));
+  }, [isLoggedIn, user]);
 
   useEffect(() => {
     holdTokenRef.current = holdToken;
@@ -172,50 +187,45 @@ export default function TripDetailPage() {
 
     (async () => {
       try {
-        const [detailResult, seatResult] = await Promise.allSettled([
+        const detailQuery = (withAvailability: boolean) =>
           gql<{ tripDetail: TripInfo | null }>(
             `query($id:ID!){tripDetail(tripId:$id){
-              id routeName origin destination pickupPoint dropoffPoint
-              operatorName busType price busPlate departureTime arrivalTime totalSeats
-              cancellationPolicy
+              ${TRIP_DETAIL_BASE_FIELDS}
+              ${withAvailability ? TRIP_DETAIL_AVAILABILITY_FIELDS : ''}
             }}`,
             { id: tripId }
-          ),
-          gql<{ seatMap: { layoutJson: string; seats: SeatRow[] } }>(
-            `query($id:ID!){seatMap(tripId:$id){layoutJson seats{seatId seatLabel status}}}`,
-            { id: tripId }
-          ),
-        ]);
+          );
+
+        let detailData: { tripDetail: TripInfo | null };
+        try {
+          detailData = await detailQuery(true);
+        } catch (err) {
+          if (!isMissingBookableFieldError(err)) throw err;
+          detailData = await detailQuery(false);
+        }
+
+        const seatResult = await gql<{ seatMap: { layoutJson: string; seats: SeatRow[] } }>(
+          `query($id:ID!){seatMap(tripId:$id){layoutJson seats{seatId seatLabel status}}}`,
+          { id: tripId }
+        );
 
         if (cancelled) return;
 
-        if (detailResult.status !== 'fulfilled' || !detailResult.value.tripDetail) {
-          throw new Error(
-            detailResult.status === 'rejected'
-              ? String(detailResult.reason)
-              : 'Không tìm thấy chuyến xe'
-          );
-        }
-        setTrip(detailResult.value.tripDetail);
-
-        const dep = detailResult.value.tripDetail.departureTime;
-        const travelDate = departureDateVN(dep);
-        const av = getTripAvailability(
-          travelDate,
-          dep,
-          new Date(),
-          detailResult.value.tripDetail.totalSeats
-        );
-        if (!av.bookable) {
-          setTripBlocked(av.availabilityLabel);
+        if (!detailData.tripDetail) {
+          throw new Error('Không tìm thấy chuyến xe');
         }
 
-        if (seatResult.status === 'fulfilled') {
-          setLayout(JSON.parse(seatResult.value.seatMap.layoutJson) as SeatLayout);
-          setSeats(seatResult.value.seatMap.seats);
-        } else {
-          throw seatResult.reason;
+        const seatRows = seatResult.seatMap.seats;
+        const availableSeats = seatRows.filter((s) => s.status === 'AVAILABLE').length;
+        const detail = enrichTripDetailAvailability(detailData.tripDetail, availableSeats);
+        setTrip(detail);
+
+        if (detail.bookable === false) {
+          setTripBlocked(detail.availabilityLabel || nonBookableButtonLabel(detail.availabilityStatus));
         }
+
+        setLayout(JSON.parse(seatResult.seatMap.layoutJson) as SeatLayout);
+        setSeats(seatRows);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Không thể tải sơ đồ ghế');
@@ -232,7 +242,7 @@ export default function TripDetailPage() {
 
   useEffect(() => {
     if (!tripId || typeof WebSocket === 'undefined') return;
-    const ws = new WebSocket(WS_URL, 'graphql-transport-ws');
+    const ws = new WebSocket(resolveWsGraphqlUrl(), 'graphql-transport-ws');
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: 'connection_init' }));
       ws.send(
@@ -267,7 +277,7 @@ export default function TripDetailPage() {
       const token = holdTokenRef.current;
       const seatIds = [...selectedRef.current];
       if (!token || !seatIds.length || !tripId) return;
-      void fetch(GRAPHQL_URL, {
+      void fetch(resolveGraphqlUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -310,30 +320,41 @@ export default function TripDetailPage() {
     );
   }, [selected, sameForAll, customizePerSeat, booker]);
 
-  async function holdSeat(seatId: string) {
-    if (holdingSeatId || tripBlocked) return;
-    setHoldingSeatId(seatId);
+  async function holdSeatsBatch(seatIds: string[]): Promise<string | null> {
+    if (tripBlocked || seatIds.length === 0) return null;
+    const lastSeat = seatIds[seatIds.length - 1];
+    setHoldingSeatId(lastSeat);
     try {
       const data = await gql<{
         holdSeats: { success: boolean; holdToken: string; expiresInSeconds: number; message: string };
       }>(
         `mutation($tripId:ID!,$seatIds:[ID!]!,$sessionId:String!){holdSeats(tripId:$tripId,seatIds:$seatIds,sessionId:$sessionId){success holdToken expiresInSeconds message}}`,
-        { tripId, seatIds: [seatId], sessionId: getSessionId() }
+        { tripId, seatIds, sessionId: getSessionId() }
       );
       const r = data.holdSeats;
       if (r.success) {
         setHoldToken(r.holdToken);
         setCountdown(r.expiresInSeconds);
-        setSelected((s) => (s.includes(seatId) ? s : [...s, seatId]));
-        toast.success(`Đã chọn ghế ${seatId}`);
-        await loadSeats();
-      } else {
-        toast.error(r.message);
+        setSelected(seatIds);
+        return r.holdToken;
       }
+      toast.error(r.message);
+      return null;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Không thể giữ ghế');
+      return null;
     } finally {
       setHoldingSeatId(null);
+    }
+  }
+
+  async function holdSeat(seatId: string) {
+    if (holdingSeatId || tripBlocked) return;
+    const nextSelected = selected.includes(seatId) ? selected : [...selected, seatId];
+    const token = await holdSeatsBatch(nextSelected);
+    if (token) {
+      toast.success(`Đã chọn ghế ${seatId}`);
+      await loadSeats();
     }
   }
 
@@ -351,13 +372,18 @@ export default function TripDetailPage() {
       const ok = await releaseHeldSeats([seatId], token);
       if (ok) {
         const nextSelected = selected.filter((id) => id !== seatId);
-        setSelected(nextSelected);
         if (nextSelected.length === 0) {
+          setSelected([]);
           setHoldToken('');
           setCountdown(0);
           setFlowStep('seat');
+          toast.success(`Đã bỏ chọn ghế ${seatId}`);
+        } else {
+          const reheld = await holdSeatsBatch(nextSelected);
+          if (reheld) {
+            toast.success(`Đã bỏ chọn ghế ${seatId}`);
+          }
         }
-        toast.success(`Đã bỏ chọn ghế ${seatId}`);
         await loadSeats();
       } else {
         toast.error('Không thể nhả ghế — thử lại');
@@ -393,9 +419,10 @@ export default function TripDetailPage() {
 
   function canProceedToPayment() {
     if (!canProceedFromSeat()) return false;
-    if (!booker.fullName.trim() || !booker.phone.trim() || !booker.email.trim()) return false;
+    if (!booker.fullName.trim() || !isValidPhoneNumber(booker.phone)) return false;
+    if (!isValidOptionalEmail(booker.email)) return false;
     if (customizePerSeat || !sameForAll) {
-      return passengers.every((p) => p.fullName.trim() && p.phone.trim());
+      return passengers.every((p) => p.fullName.trim() && isValidPhoneNumber(p.phone));
     }
     return true;
   }
@@ -424,17 +451,22 @@ export default function TripDetailPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function handleContinueToPayment() {
+  async function handleContinueToPayment() {
     if (!canProceedToPayment() || !trip) return;
     const finalPassengers = buildPassengersForBooking();
     const guestEmail = booker.email.trim();
+
+    const token = await holdSeatsBatch(selected);
+    if (!token) return;
+
     sessionStorage.setItem(
       'bookingDraft',
       JSON.stringify({
         passengers: finalPassengers,
         guestEmail,
+        guestPhone: booker.phone.trim(),
         tripId,
-        holdToken,
+        holdToken: token,
         selected,
         tripSummary: {
           origin: trip.origin,
@@ -452,11 +484,17 @@ export default function TripDetailPage() {
     }
     const promoParam = promoCode ? `&promo=${encodeURIComponent(promoCode)}` : '';
     router.push(
-      `/booking?tripId=${encodeURIComponent(tripId)}&holdToken=${encodeURIComponent(holdToken)}&seats=${selected.join(',')}${promoParam}`
+      `/booking?tripId=${encodeURIComponent(tripId)}&holdToken=${encodeURIComponent(token)}&seats=${selected.join(',')}${promoParam}`
     );
   }
 
-  if (loading) return <PageSkeleton />;
+  if (loading) {
+    return (
+      <PageShell className="max-w-7xl">
+        <SkeletonTripDetail />
+      </PageShell>
+    );
+  }
 
   if (error || !trip || !layout) {
     return (
@@ -667,18 +705,5 @@ function MetaChip({
         {value}
       </p>
     </div>
-  );
-}
-
-function PageSkeleton() {
-  return (
-    <PageShell className="max-w-7xl">
-      <Skeleton className="mb-5 h-4 w-32" />
-      <Skeleton className="mb-6 h-40 rounded-card" />
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        <Skeleton className="h-[420px] rounded-card" />
-        <Skeleton className="h-80 rounded-card" />
-      </div>
-    </PageShell>
   );
 }

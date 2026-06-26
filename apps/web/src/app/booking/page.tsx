@@ -1,7 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
-import Image from 'next/image';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -11,25 +10,32 @@ import {
   BadgePercent,
   Building2,
   CheckCircle2,
-  CreditCard,
   Loader2,
   QrCode,
-  Shield,
   Smartphone,
   Wallet,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { gql } from '@/lib/graphql';
+import { getSessionId } from '@/lib/session';
 import { useAuth } from '@/hooks/useAuth';
 import { saveBookingSuccess, buildSuccessPageUrl } from '@/lib/booking-success';
-import { computeBookingPricing, computePricingFromTicketTotal } from '@/lib/booking-pricing';
+import { splitGrandTotal, formatVnd } from '@/lib/booking-pricing';
+import {
+  VoucherDiscountCard,
+  BookingOrderSummary,
+  type VoucherPricing,
+} from '@/components/domain';
 import { SavedPassengerPicker } from '@/components/domain/SavedPassengerPicker';
 import { BookingProgress } from '@/components/domain/BookingProgress';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
 import { Input } from '@/components/ui/Input';
+import { PhoneInput } from '@/components/ui/PhoneInput';
 import { Badge } from '@/components/ui/Badge';
+import { isValidPhoneNumber, phoneFieldError, sanitizePhoneInput } from '@/lib/phone';
+import { emailFieldError, isValidOptionalEmail } from '@/lib/email';
 import { cn } from '@/lib/cn';
 
 type Passenger = { fullName: string; phone: string; email: string; seatId: string };
@@ -65,24 +71,34 @@ function readDraftTripSummary(): TripDraftSummary | null {
 
 function readDraft(seats: string[]) {
   const defaults = seats.map((s) => ({ fullName: '', phone: '', email: '', seatId: s }));
-  if (typeof window === 'undefined') return { passengers: defaults, guestEmail: '' };
+  if (typeof window === 'undefined') return { passengers: defaults, guestEmail: '', guestPhone: '' };
   try {
     const raw = sessionStorage.getItem('bookingDraft');
-    if (!raw) return { passengers: defaults, guestEmail: '' };
-    const draft = JSON.parse(raw) as { passengers?: Passenger[]; guestEmail?: string };
+    if (!raw) return { passengers: defaults, guestEmail: '', guestPhone: '' };
+    const draft = JSON.parse(raw) as {
+      passengers?: Passenger[];
+      guestEmail?: string;
+      guestPhone?: string;
+    };
+    const passengers = draft.passengers?.length ? draft.passengers : defaults;
+    const guestPhone =
+      draft.guestPhone?.trim() ||
+      draft.passengers?.[0]?.phone?.trim() ||
+      '';
     return {
-      passengers: draft.passengers?.length ? draft.passengers : defaults,
+      passengers,
       guestEmail: draft.guestEmail || draft.passengers?.[0]?.email || '',
+      guestPhone,
     };
   } catch {
-    return { passengers: defaults, guestEmail: '' };
+    return { passengers: defaults, guestEmail: '', guestPhone: '' };
   }
 }
 
 function BookingForm() {
   const params = useSearchParams();
   const router = useRouter();
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user } = useAuth();
   const tripId = params.get('tripId') || '';
   const holdToken = params.get('holdToken') || '';
   const seats = (params.get('seats') || '').split(',').filter(Boolean);
@@ -91,29 +107,99 @@ function BookingForm() {
 
   const [passengers, setPassengers] = useState<Passenger[]>(initialDraft.passengers);
   const [guestEmail, setGuestEmail] = useState(initialDraft.guestEmail);
+  const [guestPhone, setGuestPhone] = useState(initialDraft.guestPhone);
   const [bookingId, setBookingId] = useState('');
   const [bookingTotalAmount, setBookingTotalAmount] = useState(0);
   const [step, setStep] = useState<'form' | 'payment'>('form');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('qr');
   const [activePromoCode, setActivePromoCode] = useState(promoFromQuery || '');
+  const [pricing, setPricing] = useState<VoucherPricing | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [paying, setPaying] = useState(false);
-  const [autoSkippedForm, setAutoSkippedForm] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [activeHoldToken, setActiveHoldToken] = useState(holdToken);
+  const autoSubmitHoldRef = useRef<string | null>(null);
   const missingParams = !tripId || !holdToken || seats.length === 0;
+  const holdExpiredError = /giữ ghế|hold token|hết hạn|không còn được giữ/i.test(submitError);
+
+  const bookingVerification = useMemo(() => {
+    const phone = sanitizePhoneInput(guestPhone || passengers[0]?.phone || '');
+    const email = (guestEmail || passengers[0]?.email || '').trim();
+    return { phone, email };
+  }, [guestPhone, guestEmail, passengers]);
+
+  const orderSummary = useMemo(() => {
+    if (pricing) {
+      return {
+        ticketTotal: pricing.ticketSubtotal,
+        serviceFee: pricing.serviceFee,
+        discount: pricing.discountAmount,
+        grandTotal: pricing.finalAmount,
+        voucherCode: pricing.voucherCode || null,
+      };
+    }
+    const split = splitGrandTotal(bookingTotalAmount);
+    return {
+      ticketTotal: split.ticketTotal,
+      serviceFee: split.serviceFee,
+      discount: 0,
+      grandTotal: split.grandTotal,
+      voucherCode: null,
+    };
+  }, [pricing, bookingTotalAmount]);
+
+  const handlePricingChange = useCallback((next: VoucherPricing) => {
+    const code = next.voucherCode?.trim().toUpperCase() || '';
+    if (code) {
+      setPricing(next);
+      setActivePromoCode(code);
+      sessionStorage.setItem('activePromoCode', code);
+    } else {
+      setPricing(null);
+      setActivePromoCode('');
+      sessionStorage.removeItem('activePromoCode');
+    }
+    setBookingTotalAmount(next.finalAmount);
+  }, []);
 
   const passengersReady = useMemo(() => {
     const email = guestEmail.trim() || passengers[0]?.email?.trim() || '';
+    const phone = guestPhone.trim() || passengers[0]?.phone?.trim() || '';
     return (
-      !!email &&
+      !!phone &&
+      isValidPhoneNumber(phone) &&
+      isValidOptionalEmail(email) &&
       passengers.length === seats.length &&
-      passengers.every((p) => p.fullName.trim() && p.phone.trim() && p.email.trim())
+      passengers.every((p) => p.fullName.trim() && isValidPhoneNumber(p.phone))
     );
-  }, [guestEmail, passengers, seats.length]);
+  }, [guestEmail, guestPhone, passengers, seats.length]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !user) return;
+    setGuestEmail((prev) => prev.trim() || user.email || '');
+    setPassengers((prev) =>
+      prev.map((p, i) =>
+        i === 0
+          ? {
+              ...p,
+              fullName: p.fullName.trim() || user.fullName || '',
+              email: p.email.trim() || user.email || '',
+            }
+          : p
+      )
+    );
+  }, [isLoggedIn, user]);
 
   useEffect(() => {
     const draft = readDraft(seats);
     setPassengers(draft.passengers);
     setGuestEmail(draft.guestEmail);
+    setGuestPhone(draft.guestPhone);
+    setActiveHoldToken(holdToken);
+    autoSubmitHoldRef.current = null;
+    setSubmitError('');
+    setBookingId('');
+    setStep('form');
   }, [tripId, holdToken, seats.join(',')]);
 
   useEffect(() => {
@@ -127,67 +213,169 @@ function BookingForm() {
   }, [promoFromQuery]);
 
   useEffect(() => {
-    if (missingParams || !passengersReady || step !== 'form' || bookingId || autoSkippedForm) return;
-    setAutoSkippedForm(true);
-    void submitBooking();
-  }, [missingParams, passengersReady, step, bookingId, autoSkippedForm]);
+    if (missingParams || !passengersReady || step !== 'form' || bookingId || submitError) return;
+    if (autoSubmitHoldRef.current === holdToken) return;
+    autoSubmitHoldRef.current = holdToken;
+    void submitBooking({ auto: true });
+  }, [missingParams, passengersReady, step, bookingId, holdToken, submitError]);
 
-  async function submitBooking() {
+  async function refreshSeatHold(): Promise<string | null> {
+    try {
+      const data = await gql<{
+        holdSeats: { success: boolean; holdToken: string; message: string };
+      }>(
+        `mutation($tripId:ID!,$seatIds:[ID!]!,$sessionId:String!){
+          holdSeats(tripId:$tripId,seatIds:$seatIds,sessionId:$sessionId){success holdToken message}
+        }`,
+        { tripId, seatIds: seats, sessionId: getSessionId() }
+      );
+      if (data.holdSeats.success && data.holdSeats.holdToken) {
+        return data.holdSeats.holdToken;
+      }
+    } catch {
+      /* fall through — createBooking may still work with existing hold */
+    }
+    return null;
+  }
+
+  async function submitBooking(options?: { auto?: boolean }) {
     if (!tripId || !holdToken) {
       toast.error('Thiếu thông tin chuyến hoặc mã giữ ghế');
       return;
     }
     const email = guestEmail.trim() || passengers[0]?.email?.trim() || '';
-    if (!email) {
-      toast.error('Vui lòng nhập email nhận vé');
+    const phone = guestPhone.trim() || passengers[0]?.phone?.trim() || '';
+    if (!phone || !isValidPhoneNumber(phone)) {
+      toast.error('Vui lòng nhập số điện thoại hợp lệ');
       return;
     }
-    if (!passengers.every((p) => p.fullName.trim() && p.phone.trim() && p.email.trim())) {
-      toast.error('Vui lòng điền đầy đủ thông tin hành khách');
+    if (!isValidOptionalEmail(email)) {
+      toast.error('Email không hợp lệ');
+      return;
+    }
+    if (!passengers.every((p) => p.fullName.trim() && isValidPhoneNumber(p.phone))) {
+      toast.error('Vui lòng điền đầy đủ họ tên và số điện thoại hành khách');
       return;
     }
 
+    const passengersPayload = passengers.map((p) => ({
+      fullName: p.fullName.trim(),
+      phone: p.phone.trim(),
+      seatId: p.seatId,
+      ...(p.email.trim() || email ? { email: p.email.trim() || email } : {}),
+    }));
+
     setSubmitting(true);
+    setSubmitError('');
     try {
+      const refreshedHold = await refreshSeatHold();
+      const tokenToUse = refreshedHold || activeHoldToken || holdToken;
+      if (refreshedHold && refreshedHold !== activeHoldToken) {
+        setActiveHoldToken(refreshedHold);
+      }
+
       const data = await gql<{
         createBooking: { bookingId: string; bookingCode: string; totalAmount: number };
       }>(
-        `mutation($tripId:ID!,$holdToken:String!,$passengers:[PassengerInput!]!,$guestEmail:String!){
+        `mutation($tripId:ID!,$holdToken:String!,$passengers:[PassengerInput!]!,$guestEmail:String){
           createBooking(tripId:$tripId,holdToken:$holdToken,passengers:$passengers,guestEmail:$guestEmail){
             bookingId bookingCode totalAmount paymentDeadlineSeconds
           }
         }`,
-        { tripId, holdToken, passengers, guestEmail: email }
+        {
+          tripId,
+          holdToken: tokenToUse,
+          passengers: passengersPayload,
+          guestEmail: email || null,
+        }
       );
       setBookingId(data.createBooking.bookingId);
       setBookingTotalAmount(data.createBooking.totalAmount);
+      setGuestPhone(phone);
+      if (email) setGuestEmail(email);
+      try {
+        sessionStorage.setItem(
+          'bookingDraft',
+          JSON.stringify({
+            passengers: passengersPayload.map((p) => ({
+              fullName: p.fullName,
+              phone: p.phone,
+              email: p.email ?? '',
+              seatId: p.seatId,
+            })),
+            guestEmail: email,
+            guestPhone: phone,
+          })
+        );
+        sessionStorage.setItem(
+          'bookingSession',
+          JSON.stringify({
+            bookingId: data.createBooking.bookingId,
+            guestPhone: phone,
+            guestEmail: email,
+          })
+        );
+      } catch {
+        /* ignore quota errors */
+      }
+      const split = splitGrandTotal(data.createBooking.totalAmount);
+      setPricing({
+        ticketSubtotal: split.ticketTotal,
+        serviceFee: split.serviceFee,
+        discountAmount: 0,
+        finalAmount: split.grandTotal,
+        voucherCode: '',
+        voucherName: '',
+      });
       setStep('payment');
-      toast.success('Đã tạo đơn đặt vé — vui lòng thanh toán');
+      if (!options?.auto) {
+        toast.success('Đã tạo đơn đặt vé — vui lòng thanh toán');
+      }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Không thể tạo booking');
-      setAutoSkippedForm(false);
+      const message = err instanceof Error ? err.message : 'Không thể tạo booking';
+      setSubmitError(message);
+      if (!options?.auto) {
+        toast.error(message);
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function pay(success: boolean) {
+  async function pay(confirm: boolean) {
     if (!bookingId) return;
+    if (!confirm) {
+      toast.error('Đã hủy thanh toán');
+      return;
+    }
+    const email = guestEmail.trim() || passengers[0]?.email?.trim() || '';
+    const phone = guestPhone.trim() || passengers[0]?.phone?.trim() || '';
+    if (!phone || !isValidPhoneNumber(phone)) {
+      toast.error('Vui lòng nhập số điện thoại hợp lệ');
+      return;
+    }
+    const voucherCode = orderSummary.voucherCode || undefined;
     setPaying(true);
     try {
       const data = await gql<{
         processPayment: { success: boolean; message: string; bookingId?: string; bookingCode?: string };
       }>(
-        `mutation($bookingId:ID!,$simulateSuccess:Boolean!){
-          processPayment(bookingId:$bookingId,simulateSuccess:$simulateSuccess){
+        `mutation($bookingId:ID!,$guestEmail:String,$guestPhone:String,$voucherCode:String){
+          processPayment(bookingId:$bookingId,guestEmail:$guestEmail,guestPhone:$guestPhone,voucherCode:$voucherCode){
             success message bookingId bookingCode
           }
         }`,
-        { bookingId, simulateSuccess: success }
+        {
+          bookingId,
+          guestEmail: email || null,
+          guestPhone: phone,
+          voucherCode,
+        }
       );
       if (data.processPayment.success) {
         const tripSummary = readDraftTripSummary();
         sessionStorage.removeItem('bookingDraft');
+        sessionStorage.removeItem('bookingSession');
         const code = data.processPayment.bookingCode;
         if (!code) {
           toast.error('Thanh toán thành công nhưng không nhận được mã vé từ database');
@@ -199,17 +387,18 @@ function BookingForm() {
           return;
         }
         const email = guestEmail.trim() || passengers[0]?.email?.trim() || '';
-        const pricing = tripSummary?.pricePerSeat
-          ? computeBookingPricing(seats.length, tripSummary.pricePerSeat)
-          : computePricingFromTicketTotal(bookingTotalAmount);
+        const phone = guestPhone.trim() || passengers[0]?.phone?.trim() || '';
         const successPayload = {
           bookingCode: code,
-          guestEmail: email,
+          ...(email ? { guestEmail: email } : {}),
+          ...(phone ? { guestPhone: phone } : {}),
           passengers: passengers.map((p) => ({ fullName: p.fullName.trim(), seatId: p.seatId })),
           seats,
-          totalAmount: pricing.grandTotal,
-          ticketTotal: pricing.ticketTotal,
-          serviceFee: pricing.serviceFee,
+          totalAmount: orderSummary.grandTotal,
+          ticketTotal: orderSummary.ticketTotal,
+          serviceFee: orderSummary.serviceFee,
+          discountAmount: orderSummary.discount,
+          voucherCode: orderSummary.voucherCode || undefined,
           paymentStatus: 'PAID',
           ...(tripSummary
             ? {
@@ -259,17 +448,17 @@ function BookingForm() {
   return (
     <div className="mesh-bg min-h-screen">
       <div className="page-section page-container max-w-6xl">
-        <BookingProgress current="payment" className="mb-8" />
+        <BookingProgress current={step === 'payment' ? 'payment' : 'passenger'} className="mb-8" />
 
         <div className="mb-6">
           <h1 className="text-display text-ink">Thanh toán đặt vé</h1>
           <p className="mt-2 text-body text-ink-muted">
             {seats.length} ghế · {seats.join(', ')}
           </p>
-          {activePromoCode && (
+          {orderSummary.voucherCode && (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand-50 px-3 py-1.5 text-caption font-semibold text-brand">
               <BadgePercent className="h-4 w-4" />
-              Đang áp dụng mã giảm giá: {activePromoCode}
+              Voucher {orderSummary.voucherCode} · Giảm {formatVnd(orderSummary.discount)}
             </div>
           )}
         </div>
@@ -278,18 +467,49 @@ function BookingForm() {
           <div>
             {step === 'form' && (
               <div className="space-y-5">
-                {passengersReady && (submitting || autoSkippedForm) ? (
+                {passengersReady && submitting ? (
                   <Card variant="solid" padding="lg" className="flex flex-col items-center rounded-3xl py-12 text-center">
                     <Loader2 className="h-8 w-8 animate-spin text-brand" />
                     <p className="mt-4 text-body text-ink-muted">Đang chuẩn bị thanh toán...</p>
                   </Card>
+                ) : submitError ? (
+                  <Card variant="solid" padding="lg" className="rounded-3xl text-center">
+                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-danger-light">
+                      <AlertCircle className="h-7 w-7 text-danger" />
+                    </div>
+                    <p className="text-body font-medium text-ink">Không tạo được đơn đặt vé</p>
+                    <p className="mt-2 text-caption text-ink-muted">{submitError}</p>
+                    {holdExpiredError ? (
+                      <Link href={`/trips/${encodeURIComponent(tripId)}`} className="mt-6 inline-block">
+                        <Button type="button">Chọn lại ghế</Button>
+                      </Link>
+                    ) : (
+                      <Button
+                        type="button"
+                        className="mt-6"
+                        onClick={() => {
+                          autoSubmitHoldRef.current = null;
+                          setSubmitError('');
+                          void submitBooking();
+                        }}
+                      >
+                        Thử lại
+                      </Button>
+                    )}
+                  </Card>
                 ) : (
                   <>
                     <Card variant="solid" padding="md" className="rounded-3xl">
-                      <Field label="Email nhận vé" htmlFor="guestEmail" required>
+                      <Field
+                        label="Email nhận vé"
+                        htmlFor="guestEmail"
+                        error={emailFieldError(guestEmail)}
+                        hint="Không bắt buộc — nhập nếu muốn nhận vé qua email"
+                      >
                         <Input
                           id="guestEmail"
-                          placeholder="email@example.com"
+                          type="email"
+                          placeholder="email@example.com (tùy chọn)"
                           value={guestEmail}
                           onChange={(e) => setGuestEmail(e.target.value)}
                           className="h-11"
@@ -310,7 +530,10 @@ function BookingForm() {
                             const n = [...passengers];
                             n[i] = { ...n[i], ...data };
                             setPassengers(n);
-                            if (i === 0 && data.email) setGuestEmail(data.email);
+                            if (i === 0) {
+                              if (data.email) setGuestEmail(data.email);
+                              if (data.phone) setGuestPhone(data.phone);
+                            }
                           }}
                         />
                         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -325,20 +548,21 @@ function BookingForm() {
                               }}
                             />
                           </Field>
-                          <Field label="Số điện thoại" required>
-                            <Input
+                          <Field label="Số điện thoại" required error={phoneFieldError(p.phone)}>
+                            <PhoneInput
                               placeholder="0901234567"
                               value={p.phone}
-                              onChange={(e) => {
+                              onChange={(phone) => {
                                 const n = [...passengers];
-                                n[i] = { ...n[i], phone: e.target.value };
+                                n[i] = { ...n[i], phone };
                                 setPassengers(n);
+                                if (i === 0) setGuestPhone(phone);
                               }}
                             />
                           </Field>
-                          <Field label="Email" required>
+                          <Field label="Email" error={emailFieldError(p.email)} hint="Tùy chọn">
                             <Input
-                              placeholder="email@example.com"
+                              placeholder="email@example.com (tùy chọn)"
                               value={p.email}
                               onChange={(e) => {
                                 const n = [...passengers];
@@ -354,7 +578,7 @@ function BookingForm() {
                     <Button
                       type="button"
                       size="lg"
-                      onClick={submitBooking}
+                      onClick={() => void submitBooking()}
                       disabled={submitting}
                       className="w-full bg-gradient-to-r from-brand-600 to-brand-700"
                     >
@@ -372,15 +596,19 @@ function BookingForm() {
 
             {step === 'payment' && (
               <div className="space-y-5">
+                {bookingId && (
+                  <VoucherDiscountCard
+                    bookingId={bookingId}
+                    guestEmail={bookingVerification.email}
+                    guestPhone={bookingVerification.phone}
+                    isLoggedIn={isLoggedIn}
+                    initialCode={activePromoCode}
+                    onPricingChange={handlePricingChange}
+                  />
+                )}
+
                 <Card variant="solid" padding="md" className="rounded-2xl">
                   <h2 className="text-subtitle font-semibold text-ink">Chọn phương thức thanh toán</h2>
-                  {activePromoCode && (
-                    <div className="mt-4 rounded-xl border border-brand/20 bg-brand-50/80 p-3">
-                      <Field label="Mã khuyến mãi tự động áp dụng">
-                        <Input value={activePromoCode} readOnly className="h-10 font-mono font-semibold text-brand" />
-                      </Field>
-                    </div>
-                  )}
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
                     {PAYMENT_METHODS.map(({ id, label, icon: Icon, desc }) => (
                       <button
@@ -481,55 +709,19 @@ function BookingForm() {
           </div>
 
           <aside className="lg:sticky lg:top-24 lg:self-start">
-            <Card variant="elevated" padding="none" className="overflow-hidden rounded-2xl">
-              <div className="relative h-32">
-                <Image
-                  src="/images/bus-limousine.jpg"
-                  alt=""
-                  fill
-                  className="object-cover"
-                  sizes="360px"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                <div className="absolute bottom-4 left-5">
-                  <p className="text-micro font-medium uppercase tracking-wide text-white/70">
-                    Tóm tắt đơn hàng
-                  </p>
-                  <p className="text-subtitle font-bold text-white">{seats.length} ghế đã chọn</p>
-                </div>
-              </div>
-              <div className="p-5">
-                <div className="space-y-3 text-body">
-                  <div className="flex justify-between">
-                    <span className="text-ink-muted">Ghế</span>
-                    <span className="font-semibold text-ink">{seats.join(', ')}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-ink-muted">Số lượng</span>
-                    <span className="font-semibold text-ink">{seats.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-ink-muted">Phương thức</span>
-                    <span className="flex items-center gap-1.5 font-semibold text-ink">
-                      <CreditCard className="h-3.5 w-3.5 text-brand" />
-                      {step === 'payment'
-                        ? PAYMENT_METHODS.find((m) => m.id === paymentMethod)?.label
-                        : 'Chưa chọn'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-ink-muted">Mã giảm giá</span>
-                    <span className="font-semibold text-brand">{activePromoCode || '—'}</span>
-                  </div>
-                </div>
-                <div className="mt-5 border-t border-slate-100 pt-4">
-                  <p className="flex items-center gap-1.5 text-micro text-ink-subtle">
-                    <Shield className="h-3.5 w-3.5 text-brand" />
-                    Thanh toán được mã hóa SSL 256-bit
-                  </p>
-                </div>
-              </div>
-            </Card>
+            <BookingOrderSummary
+              seats={seats}
+              paymentMethodLabel={
+                step === 'payment'
+                  ? PAYMENT_METHODS.find((m) => m.id === paymentMethod)?.label
+                  : undefined
+              }
+              ticketSubtotal={orderSummary.ticketTotal}
+              serviceFee={orderSummary.serviceFee}
+              discountAmount={orderSummary.discount}
+              finalAmount={orderSummary.grandTotal}
+              voucherCode={orderSummary.voucherCode ?? undefined}
+            />
           </aside>
         </div>
       </div>

@@ -18,6 +18,7 @@ import {
 } from '@bus/shared';
 import { createContext, resolvers } from './resolvers';
 import { getAggregatedHealth } from './health-routes';
+import { devCorsOptions } from './cors';
 
 const PORT = process.env.PORT || 4000;
 const logger = createLogger('api-gateway');
@@ -70,7 +71,7 @@ async function main() {
 
   app.use(
     '/graphql',
-    cors<cors.CorsRequest>(),
+    cors<cors.CorsRequest>(devCorsOptions),
     express.json(),
     expressMiddleware(apollo, {
       context: async ({ req }) => {
@@ -89,17 +90,6 @@ async function main() {
       },
     }) as unknown as express.RequestHandler
   );
-
-  httpServer.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      logger.error(
-        { port: PORT },
-        `Port ${PORT} đã được sử dụng. Chạy: npm run dev:gateway (tự giải phóng port) hoặc docker compose stop api-gateway`
-      );
-      process.exit(1);
-    }
-    throw err;
-  });
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
@@ -135,8 +125,8 @@ async function main() {
     process.exit(1);
   });
 
-  httpServer.listen(PORT, () => {
-    logger.info({ action: 'server.start', port: PORT }, 'API Gateway started');
+  httpServer.listen(Number(PORT), '0.0.0.0', () => {
+    logger.info({ action: 'server.start', port: PORT, host: '0.0.0.0' }, 'API Gateway started');
   });
 }
 

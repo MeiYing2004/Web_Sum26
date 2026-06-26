@@ -1,4 +1,4 @@
-import { USER_ROLES } from '@bus/shared';
+import { USER_ROLES, getTripAvailability, departureDateVN } from '@bus/shared';
 import { requireRole, type GatewayContext } from './context';
 
 function promisify<T>(fn: (cb: (err: Error | null, res: T) => void) => void): Promise<T> {
@@ -43,6 +43,22 @@ function mapAdminBus(b: Record<string, unknown>) {
 }
 
 function mapAdminTrip(t: Record<string, unknown>) {
+  const departureTime = String(t.departure_time ?? '');
+  const arrivalTime = String(t.arrival_time ?? '');
+  const status = String(t.status ?? '');
+
+  let displayStatus = t.display_status as string | undefined;
+  let displayStatusLabel = t.display_status_label as string | undefined;
+  if (!displayStatus || !displayStatusLabel) {
+    const travelDate = departureDateVN(departureTime);
+    const av = getTripAvailability(travelDate, departureTime, new Date(), undefined, {
+      arrivalTimeIso: arrivalTime,
+      dbStatus: status,
+    });
+    displayStatus = av.displayStatus;
+    displayStatusLabel = av.displayStatusLabel;
+  }
+
   return {
     id: t.id,
     routeId: t.route_id,
@@ -58,9 +74,45 @@ function mapAdminTrip(t: Record<string, unknown>) {
     arrivalTime: t.arrival_time,
     price: t.price,
     status: t.status,
+    displayStatus,
+    displayStatusLabel,
     pickupPoint: t.pickup_point,
     dropoffPoint: t.dropoff_point,
     cancellationPolicy: t.cancellation_policy,
+  };
+}
+
+function mapCheckInPreview(r: Record<string, unknown>) {
+  const passengers = (r.passengers as Array<Record<string, string>>) || [];
+  return {
+    found: Boolean(r.found),
+    canCheckIn: Boolean(r.can_check_in),
+    invalidReason: r.invalid_reason ? String(r.invalid_reason) : null,
+    ticketCode: r.ticket_code ? String(r.ticket_code) : null,
+    bookingCode: r.booking_code ? String(r.booking_code) : null,
+    status: r.status ? String(r.status) : null,
+    buyerName: r.buyer_name ? String(r.buyer_name) : null,
+    buyerPhone: r.buyer_phone ? String(r.buyer_phone) : null,
+    buyerEmail: r.buyer_email ? String(r.buyer_email) : null,
+    passengers: passengers.map((p) => ({
+      fullName: p.full_name,
+      seatId: p.seat_id,
+    })),
+    seatCount: Number(r.seat_count ?? 0),
+    routeName: r.route_name ? String(r.route_name) : null,
+    operatorName: r.operator_name ? String(r.operator_name) : null,
+    busPlate: r.bus_plate ? String(r.bus_plate) : null,
+    departureTime: r.departure_time ? String(r.departure_time) : null,
+    pickupPoint: r.pickup_point ? String(r.pickup_point) : null,
+    dropoffPoint: r.dropoff_point ? String(r.dropoff_point) : null,
+    ticketSubtotal: r.ticket_subtotal != null ? Number(r.ticket_subtotal) : null,
+    serviceFee: r.service_fee != null ? Number(r.service_fee) : null,
+    voucherCode: r.voucher_code ? String(r.voucher_code) : null,
+    voucherName: r.voucher_name ? String(r.voucher_name) : null,
+    discountAmount: r.discount_amount != null ? Number(r.discount_amount) : null,
+    finalAmount: r.final_amount != null ? Number(r.final_amount) : null,
+    checkedInAt: r.checked_in_at ? String(r.checked_in_at) : null,
+    checkedInByUserId: r.checked_in_by_user_id ? String(r.checked_in_by_user_id) : null,
   };
 }
 
@@ -156,6 +208,14 @@ export const adminResolvers = {
         ctx.tripClient.GetOperators({}, cb)
       );
       return res.operators.map((o) => ({ id: o.id, name: o.name }));
+    },
+
+    adminCheckInPreview: async (_: unknown, { ref }: { ref: string }, ctx: GatewayContext) => {
+      requireRole(ctx, STAFF_ROLES);
+      const res = await promisify<Record<string, unknown>>((cb) =>
+        ctx.bookingClient.PrepareCheckIn({ ref: ref.trim() }, cb)
+      );
+      return mapCheckInPreview(res);
     },
 
     adminBookingsByTrip: async (

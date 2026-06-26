@@ -10,6 +10,9 @@ service TripService {
   rpc AutocompleteLocations(AutocompleteRequest) returns (AutocompleteResponse);
   rpc SuggestNearestDate(SuggestNearestDateRequest) returns (SuggestNearestDateResponse);
   rpc CountActiveTrips(CountActiveTripsRequest) returns (CountActiveTripsResponse);
+  rpc GetPlatformTripStats(GetPlatformTripStatsRequest) returns (GetPlatformTripStatsResponse);
+  rpc ListFeaturedOperators(ListFeaturedOperatorsRequest) returns (ListFeaturedOperatorsResponse);
+  rpc ListFeaturedDestinations(ListFeaturedDestinationsRequest) returns (ListFeaturedDestinationsResponse);
   rpc GetRouteCatalog(GetRouteCatalogRequest) returns (GetRouteCatalogResponse);
 
   // Admin CRUD — Routes
@@ -129,6 +132,45 @@ message CountActiveTripsResponse {
   int32 count = 1;
 }
 
+message GetPlatformTripStatsRequest {}
+
+message GetPlatformTripStatsResponse {
+  int32 trips_today = 1;
+  int32 operator_count = 2;
+  int32 province_count = 3;
+}
+
+message ListFeaturedOperatorsRequest {
+  optional int32 limit = 1;
+}
+
+message FeaturedOperatorItem {
+  string id = 1;
+  string name = 2;
+  int32 trip_count_today = 3;
+  repeated string routes = 4;
+  optional double price_from = 5;
+  string badge = 6;
+}
+
+message ListFeaturedOperatorsResponse {
+  repeated FeaturedOperatorItem operators = 1;
+}
+
+message ListFeaturedDestinationsRequest {}
+
+message FeaturedDestinationItem {
+  string city = 1;
+  string slug = 2;
+  string tagline = 3;
+  int32 route_count = 4;
+  optional double price_from = 5;
+}
+
+message ListFeaturedDestinationsResponse {
+  repeated FeaturedDestinationItem destinations = 1;
+}
+
 message GetRouteCatalogRequest {
   string travel_date = 1;
   optional int32 limit = 2;
@@ -143,9 +185,17 @@ message RouteCatalogRoute {
   string next_departure_time = 6;
 }
 
+message RoutePair {
+  string origin = 1;
+  string destination = 2;
+}
+
 message GetRouteCatalogResponse {
   repeated string locations = 1;
   repeated RouteCatalogRoute routes = 2;
+  repeated string origins = 3;
+  repeated string destinations = 4;
+  repeated RoutePair route_pairs = 5;
 }
 
 // ─── Admin shared ───────────────────────────────────────────
@@ -309,6 +359,8 @@ message AdminTripItem {
   string pickup_point = 15;
   string dropoff_point = 16;
   string cancellation_policy = 17;
+  string display_status = 18;
+  string display_status_label = 19;
 }
 
 message GetTripsAdminRequest {

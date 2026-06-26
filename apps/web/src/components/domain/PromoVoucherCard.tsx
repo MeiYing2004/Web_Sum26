@@ -5,10 +5,8 @@ import {
   ArrowRight,
   BadgePercent,
   CalendarClock,
-  CircleDollarSign,
   Copy,
   CopyCheck,
-  Gift,
   Leaf,
   ShieldCheck,
   TicketPercent,
@@ -16,8 +14,10 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/Button';
+import { VoucherQR } from '@/components/marketing/VoucherQR';
 import { cn } from '@/lib/cn';
 import type { Promotion } from '@/lib/marketing';
+import { daysUntilExpiry, voucherUsagePercent } from '@/lib/marketing-content';
 
 const PROMO_ICONS: Record<Promotion['kind'], LucideIcon> = {
   'new-user': BadgePercent,
@@ -25,35 +25,31 @@ const PROMO_ICONS: Record<Promotion['kind'], LucideIcon> = {
   weekend: Leaf,
 };
 
-const PROMO_ACCENTS: Record<
+const PROMO_THEMES: Record<
   Promotion['kind'],
   {
-    bar: string;
+    strip: string;
     iconWrap: string;
-    badge: string;
-    code: string;
+    progress: string;
     cta: string;
   }
 > = {
   'new-user': {
-    bar: 'bg-brand',
-    iconWrap: 'bg-brand-100 text-brand-700',
-    badge: 'border border-brand-200 bg-brand-50 text-brand-800',
-    code: 'text-brand-700',
-    cta: 'bg-brand hover:bg-brand-700',
+    strip: 'bg-gradient-to-b from-brand-600 to-brand-500',
+    iconWrap: 'bg-white/20 text-white',
+    progress: 'bg-brand-500',
+    cta: 'bg-brand-600 hover:bg-brand-700',
   },
   'round-trip': {
-    bar: 'bg-violet-600',
-    iconWrap: 'bg-violet-100 text-violet-700',
-    badge: 'border border-violet-200 bg-violet-50 text-violet-800',
-    code: 'text-violet-700',
+    strip: 'bg-gradient-to-b from-violet-600 to-violet-500',
+    iconWrap: 'bg-white/20 text-white',
+    progress: 'bg-violet-500',
     cta: 'bg-violet-600 hover:bg-violet-700',
   },
   weekend: {
-    bar: 'bg-emerald-600',
-    iconWrap: 'bg-emerald-100 text-emerald-700',
-    badge: 'border border-emerald-200 bg-emerald-50 text-emerald-800',
-    code: 'text-emerald-700',
+    strip: 'bg-gradient-to-b from-emerald-600 to-emerald-500',
+    iconWrap: 'bg-white/20 text-white',
+    progress: 'bg-emerald-500',
     cta: 'bg-emerald-600 hover:bg-emerald-700',
   },
 };
@@ -65,99 +61,107 @@ export interface PromoVoucherCardProps {
   onCopy: (code: string) => void;
 }
 
+/** Card voucher dạng coupon — QR, mã giảm, progress, điều kiện */
 export function PromoVoucherCard({ promo, index = 0, copied, onCopy }: PromoVoucherCardProps) {
   const PromoIcon = PROMO_ICONS[promo.kind];
-  const accent = PROMO_ACCENTS[promo.kind];
+  const theme = PROMO_THEMES[promo.kind];
+  const daysLeft = daysUntilExpiry(promo.validUntil);
+  const usagePercent = voucherUsagePercent(promo.code);
+  const remainingPercent = Math.max(0, 100 - usagePercent);
+  const isExpiringSoon = daysLeft > 0 && daysLeft <= 7;
 
   return (
     <motion.article
-      initial={{ opacity: 0, y: 18 }}
+      initial={{ opacity: 0, y: 20 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.3 }}
-      transition={{ duration: 0.35, delay: index * 0.06 }}
-      className="group flex w-[86vw] min-w-[320px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-card transition-all duration-300 hover:-translate-y-1 hover:shadow-elevated md:w-auto md:min-w-0"
+      transition={{ duration: 0.4, delay: index * 0.07 }}
+      className="coupon-card group flex w-[86vw] min-w-[340px] flex-col transition-all duration-300 hover:-translate-y-2 hover:shadow-elevated md:w-auto md:min-w-0"
     >
-      <div className={cn('h-1.5 w-full', accent.bar)} />
-
-      <div className="flex flex-1 flex-col p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className={cn('flex h-12 w-12 items-center justify-center rounded-xl', accent.iconWrap)}>
-            <PromoIcon className="h-6 w-6" strokeWidth={2} />
+      <div className="flex min-h-[280px] flex-1">
+        {/* Strip trái — màu coupon */}
+        <div
+          className={cn(
+            'voucher-perforation relative flex w-28 shrink-0 flex-col items-center justify-center gap-3 px-3 py-6 text-white',
+            theme.strip
+          )}
+        >
+          <div className={cn('flex h-11 w-11 items-center justify-center rounded-xl', theme.iconWrap)}>
+            <PromoIcon className="h-5 w-5" strokeWidth={2} />
           </div>
-          <span
-            className={cn(
-              'rounded-full px-3 py-1 text-micro font-semibold',
-              accent.badge
-            )}
-          >
-            HSD {promo.validUntil}
-          </span>
+          <VoucherQR code={promo.code} size={64} />
+          <p className="text-center text-[10px] font-bold uppercase tracking-widest text-white/90">
+            {promo.eyebrow}
+          </p>
         </div>
 
-        <p className="mt-4 text-micro font-bold uppercase tracking-[0.2em] text-ink-muted">
-          {promo.eyebrow}
-        </p>
-        <p className="mt-2 text-3xl font-black tracking-tight text-ink">{promo.discountValue}</p>
-        <h3 className="mt-1 text-lg font-bold text-ink">{promo.title}</h3>
-        <p className="mt-2 text-sm leading-relaxed text-ink-muted">{promo.desc}</p>
-
-        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <div className="flex items-center justify-between gap-3">
+        {/* Nội dung phải */}
+        <div className="flex flex-1 flex-col p-5">
+          <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-                Mã giảm giá
-              </p>
-              <p className={cn('mt-1 font-mono text-2xl font-black tracking-[0.14em]', accent.code)}>
-                {promo.code}
-              </p>
+              <p className="text-2xl font-black tracking-tight text-ink">{promo.discountValue}</p>
+              <h3 className="mt-1 text-base font-bold text-ink">{promo.title}</h3>
             </div>
-            <Gift className="h-7 w-7 shrink-0 text-ink-subtle" aria-hidden />
+            <span
+              className={cn(
+                'shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold',
+                isExpiringSoon ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-ink-muted'
+              )}
+            >
+              {isExpiringSoon ? `${daysLeft} ngày` : promo.validUntil}
+            </span>
           </div>
 
-          <dl className="mt-4 space-y-2.5 border-t border-slate-200 pt-4 text-sm">
-            <div className="flex items-start justify-between gap-3">
-              <dt className="inline-flex shrink-0 items-center gap-1.5 text-ink-muted">
-                <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
-                Điều kiện
-              </dt>
-              <dd className="max-w-[210px] text-right font-medium text-ink">{promo.condition}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt className="inline-flex items-center gap-1.5 text-ink-muted">
-                <CircleDollarSign className="h-3.5 w-3.5" aria-hidden />
-                Giảm tối đa
-              </dt>
-              <dd className="font-semibold text-ink">{promo.maxDiscount}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt className="inline-flex items-center gap-1.5 text-ink-muted">
-                <CalendarClock className="h-3.5 w-3.5" aria-hidden />
-                Hạn sử dụng
-              </dt>
-              <dd className="font-semibold text-ink">{promo.validUntil}</dd>
-            </div>
-          </dl>
-        </div>
+          <p className="mt-2 line-clamp-2 text-sm text-ink-muted">{promo.desc}</p>
 
-        <div className="mt-auto flex flex-col gap-3 pt-5 sm:flex-row">
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-11 flex-1 border-slate-200 bg-white text-ink hover:border-brand/30 hover:bg-brand-50 hover:text-brand"
-            onClick={() => onCopy(promo.code)}
-          >
-            {copied ? <CopyCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            {copied ? 'Đã sao chép' : 'Sao chép mã'}
-          </Button>
-          <Link href={`/trips?promo=${encodeURIComponent(promo.code)}`} className="flex flex-1">
+          {/* Progress còn lại */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-micro text-ink-subtle">
+              <span>Còn lại {remainingPercent}%</span>
+              <span>{usagePercent}% đã dùng</span>
+            </div>
+            <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className={cn('h-full rounded-full transition-all', theme.progress)}
+                style={{ width: `${remainingPercent}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Mã giảm */}
+          <div className="mt-4 rounded-xl border border-dashed border-border bg-slate-50 px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">Mã giảm giá</p>
+            <p className="mt-1 font-mono text-xl font-black tracking-wider text-brand">{promo.code}</p>
+          </div>
+
+          <div className="mt-3 flex items-start gap-1.5 text-caption text-ink-muted">
+            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" />
+            <span>{promo.condition}</span>
+          </div>
+
+          <div className="mt-2 flex items-center gap-1.5 text-caption text-ink-subtle">
+            <CalendarClock className="h-3.5 w-3.5" />
+            HSD: {promo.validUntil} · {promo.maxDiscount}
+          </div>
+
+          <div className="mt-auto flex gap-2 pt-4">
             <Button
               type="button"
-              className={cn('h-11 w-full text-white shadow-card', accent.cta)}
+              variant="secondary"
+              size="sm"
+              className="h-10 flex-1 border-border"
+              onClick={() => onCopy(promo.code)}
             >
-              Áp dụng ngay
-              <ArrowRight className="h-4 w-4" />
+              {copied ? <CopyCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {copied ? 'Đã sao chép' : 'Sao chép'}
             </Button>
-          </Link>
+            <Link href={`/trips?promo=${encodeURIComponent(promo.code)}`} className="flex-1">
+              <Button type="button" size="sm" className={cn('btn-ripple h-10 w-full text-white', theme.cta)}>
+                Áp dụng
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
     </motion.article>

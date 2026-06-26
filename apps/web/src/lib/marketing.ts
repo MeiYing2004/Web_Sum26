@@ -1,21 +1,5 @@
 /** Static marketing content for homepage — no API dependency */
 
-export const FEATURED_OPERATORS = [
-  { name: 'Phương Trang', rating: 4.8, trips: '120+ chuyến/ngày', badge: 'Bán chạy' },
-  { name: 'Thành Bưởi', rating: 4.7, trips: '80+ chuyến/ngày', badge: 'Uy tín' },
-  { name: 'Hoàng Long', rating: 4.6, trips: '60+ chuyến/ngày', badge: 'Giá tốt' },
-  { name: 'Mai Linh Express', rating: 4.9, trips: '45+ chuyến/ngày', badge: 'Premium' },
-] as const;
-
-export const FEATURED_DESTINATIONS = [
-  { city: 'Đà Lạt', tagline: 'Thành phố ngàn hoa', deals: 12 },
-  { city: 'Nha Trang', tagline: 'Biển xanh cát trắng', deals: 8 },
-  { city: 'Đà Nẵng', tagline: 'Cầu Vàng & biển Mỹ Khê', deals: 15 },
-  { city: 'Hà Nội', tagline: '36 phố phường', deals: 20 },
-  { city: 'Cần Thơ', tagline: 'Chợ nổi Cái Răng', deals: 6 },
-  { city: 'TP.HCM', tagline: 'Sài Gòn không ngủ', deals: 25 },
-] as const;
-
 export const PROMOTIONS = [
   {
     kind: 'new-user' as const,
@@ -53,30 +37,6 @@ export const PROMOTIONS = [
 ] as const;
 
 export type Promotion = (typeof PROMOTIONS)[number];
-
-export const TESTIMONIALS = [
-  {
-    name: 'Minh Anh',
-    route: 'TP.HCM → Đà Lạt',
-    rating: 5,
-    text: 'Đặt vé nhanh, ghế đúng như sơ đồ. QR lên xe rất tiện, không cần in vé.',
-    avatar: 'MA',
-  },
-  {
-    name: 'Tuấn Kiệt',
-    route: 'Hà Nội → Đà Nẵng',
-    rating: 5,
-    text: 'Giao diện rõ ràng, so sánh giá nhiều nhà xe. Thanh toán xong có vé ngay trong app.',
-    avatar: 'TK',
-  },
-  {
-    name: 'Lan Phương',
-    route: 'TP.HCM → Nha Trang',
-    rating: 4,
-    text: 'Hỗ trợ tra cứu vé bằng mã rất nhanh. cappy gợi ý chuyến phù hợp buổi tối.',
-    avatar: 'LP',
-  },
-] as const;
 
 export const BUS_AMENITIES = ['WiFi', 'Nước uống', 'Chăn gối', 'USB', 'WC', 'TV'] as const;
 

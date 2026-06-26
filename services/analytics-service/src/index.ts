@@ -1,7 +1,7 @@
 import * as grpc from '@grpc/grpc-js';
 import { PrismaClient } from '@prisma/client';
 import { AnalyticsService } from '@bus/proto';
-import { createKafkaConsumer, KAFKA_TOPICS, bootstrapServiceHealth } from '@bus/shared';
+import { createKafkaConsumer, KAFKA_TOPICS, bootstrapServiceHealth, formatDateVN } from '@bus/shared';
 
 const prisma = new PrismaClient();
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'localhost:9092').split(',');
@@ -54,6 +54,7 @@ async function startKafkaConsumer() {
           const routeName = String(event.routeName || 'Khác');
           const ticketCount = Number(event.ticketCount) || 1;
           const amount = Number(event.amount) || 0;
+          const date = formatDateVN(new Date());
           const existing = await prisma.routeTicketStat.findFirst({ where: { routeName } });
           if (existing) {
             await prisma.routeTicketStat.update({
@@ -68,6 +69,18 @@ async function startKafkaConsumer() {
               data: { routeName, ticketsSold: ticketCount, revenue: amount },
             });
           }
+          await prisma.dailyRevenue.upsert({
+            where: { date },
+            update: {
+              revenue: { increment: amount },
+              bookingCount: { increment: ticketCount },
+            },
+            create: {
+              date,
+              revenue: amount,
+              bookingCount: ticketCount,
+            },
+          });
         }
       }
 
@@ -79,7 +92,7 @@ async function startKafkaConsumer() {
             amount: event.amount,
           },
         });
-        const date = new Date().toISOString().split('T')[0];
+        const date = formatDateVN(new Date());
         await prisma.dailyRevenue.upsert({
           where: { date },
           update: {

@@ -6,6 +6,7 @@ import {
   releaseSeatInRedis,
   confirmSeatsInRedis,
   unbookSeatsInRedis,
+  validateHoldTokenInRedis,
   getSeatStatuses,
   SEAT_HOLD_TTL_SECONDS,
   REDIS_KEYS,
@@ -118,6 +119,22 @@ const seatServiceImpl = {
         await releaseSeatInRedis(redis, trip_id, seatId, sessionId);
       }
       callback(null, { success: true });
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  ValidateHold: async (
+    call: grpc.ServerUnaryCall<
+      { trip_id: string; hold_token: string; seat_ids: string[] },
+      unknown
+    >,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const { trip_id, hold_token, seat_ids } = call.request;
+      const result = await validateHoldTokenInRedis(redis, trip_id, hold_token, seat_ids);
+      callback(null, { valid: result.valid, message: result.message });
     } catch (err) {
       callback(err as grpc.ServiceError, null);
     }

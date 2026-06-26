@@ -1,5 +1,6 @@
 export * from './roles';
 export * from './trip-availability';
+export * from './trip-lifecycle';
 export * from './datetime';
 export * from './locations';
 export * from './constants';
@@ -17,4 +18,6 @@ export * from './express-middleware';
 export * from './grpc-context';
 export * from './health';
 export * from './service-health-bootstrap';
+export * from './booking-pricing';
+export * from './voucher';
 export * from './text';

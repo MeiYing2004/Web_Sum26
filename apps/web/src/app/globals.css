@@ -4,10 +4,10 @@
 
 @layer base {
   :root {
-    --color-brand: 0 102 255;
+    --color-brand: 37 99 235;
     --color-accent: 255 107 53;
     --color-ink: 10 22 40;
-    --color-surface: 246 248 251;
+    --color-surface: 248 250 252;
     --radius-sm: 0.5rem;
     --radius-md: 0.75rem;
     --radius-lg: 1rem;
@@ -57,11 +57,11 @@
   }
 
   .page-container {
-    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+    @apply mx-auto w-full max-w-container px-4 sm:px-6 lg:px-8;
   }
 
   .page-section {
-    @apply py-8 sm:py-12;
+    @apply py-20 sm:py-24 lg:py-28;
   }
 
   .text-balance {
@@ -70,27 +70,118 @@
 
   .hero-overlay {
     background: linear-gradient(
-      135deg,
-      rgba(10, 22, 40, 0.88) 0%,
-      rgba(0, 82, 204, 0.65) 45%,
-      rgba(10, 22, 40, 0.9) 100%
+      180deg,
+      rgba(15, 23, 42, 0.82) 0%,
+      rgba(37, 99, 235, 0.45) 40%,
+      rgba(15, 23, 42, 0.25) 70%,
+      transparent 100%
     );
   }
 
+  .hero-blur-layer {
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+  }
+
   .search-box-premium {
-    @apply rounded-2xl border border-white/80 bg-white/95 p-2 shadow-search backdrop-blur-xl sm:p-3;
+    @apply rounded-3xl border border-white/90 bg-white p-4 shadow-search backdrop-blur-xl transition-shadow duration-300 hover:shadow-search-hover sm:p-5;
   }
 
   .section-heading {
-    @apply text-title font-semibold tracking-tight text-ink;
+    @apply text-section-title font-bold tracking-tight text-ink;
   }
 
   .section-subheading {
-    @apply mt-1 text-body text-ink-muted;
+    @apply mt-2 text-base text-ink-muted;
   }
 
   .card-hover-lift {
-    @apply transition-all duration-300 ease-smooth hover:-translate-y-1 hover:shadow-elevated;
+    @apply transition-all duration-300 ease-smooth hover:-translate-y-2 hover:shadow-elevated;
+  }
+
+  .card-hover-scale {
+    @apply transition-transform duration-500 ease-smooth hover:scale-[1.05];
+  }
+
+  .image-zoom-hover {
+    @apply transition-transform duration-500 ease-smooth group-hover:scale-110;
+  }
+
+  .btn-ripple {
+    @apply relative overflow-hidden;
+  }
+
+  .btn-ripple::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.35) 0%, transparent 70%);
+    transform: scale(0);
+    opacity: 0;
+    transition: transform 0.45s ease, opacity 0.45s ease;
+  }
+
+  .btn-ripple:active::after {
+    transform: scale(2.5);
+    opacity: 1;
+    transition: transform 0s, opacity 0s;
+  }
+
+  .stat-card {
+    background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+    box-shadow: 0 4px 24px rgba(10, 22, 40, 0.06);
+  }
+
+  .stat-card:hover {
+    box-shadow: 0 8px 32px rgba(37, 99, 235, 0.12);
+    transform: translateY(-8px);
+  }
+
+  .coupon-card {
+    position: relative;
+    background: #ffffff;
+    border: 1px dashed #e5e7eb;
+    border-radius: 1.25rem;
+    overflow: hidden;
+  }
+
+  .coupon-card::before,
+  .coupon-card::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgb(var(--color-surface));
+    transform: translateY(-50%);
+    z-index: 2;
+  }
+
+  .coupon-card::before {
+    left: -10px;
+    box-shadow: inset -1px 0 0 #e5e7eb;
+  }
+
+  .coupon-card::after {
+    right: -10px;
+    box-shadow: inset 1px 0 0 #e5e7eb;
+  }
+
+  .voucher-perforation {
+    border-left: 2px dashed #e5e7eb;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.4s ease-out both;
+  }
+
+  .animate-scale-in {
+    animation: scale-in 0.3s ease-out both;
+  }
+
+  .btn-interactive {
+    @apply transition-all duration-200 ease-smooth hover:scale-[1.02] active:scale-[0.98];
   }
 
   .gradient-text {

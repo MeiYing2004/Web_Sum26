@@ -98,6 +98,11 @@ function toTicketDetail(t: Ticket) {
     departure_time: t.departureTime,
     bus_plate: t.busPlate,
     total_amount: t.totalAmount,
+    ticket_subtotal: t.ticketSubtotal,
+    service_fee: t.serviceFee,
+    discount_amount: t.discountAmount,
+    voucher_code: t.voucherCode,
+    final_amount: t.finalAmount || t.totalAmount,
     payment_status: t.paymentStatus,
     booking_status: t.bookingStatus,
     qr_code: t.qrCode,
@@ -202,10 +207,17 @@ async function handleBookingPaid(data: Record<string, unknown>) {
     (data.passengers as Array<{ fullName?: string; full_name?: string; phone: string; email: string; seatId?: string; seat_id?: string }>) || [];
   const bookingCode = data.bookingCode as string;
   const tripId = data.tripId as string;
-  const totalAmount = Number(data.totalAmount ?? 0);
+  const totalAmount = Number(data.finalAmount ?? data.totalAmount ?? 0);
+  const ticketSubtotal = Number(data.ticketSubtotal ?? 0);
+  const serviceFee = Number(data.serviceFee ?? 0);
+  const discountAmount = Number(data.discountAmount ?? 0);
+  const voucherCode = String(data.voucherCode ?? '');
   const userId = (data.userId as string) || null;
   const trip = await fetchTripMeta(tripId);
   const perSeatAmount = passengers.length > 0 ? totalAmount / passengers.length : totalAmount;
+  const perSeatSubtotal = passengers.length > 0 ? ticketSubtotal / passengers.length : ticketSubtotal;
+  const perSeatFee = passengers.length > 0 ? serviceFee / passengers.length : serviceFee;
+  const perSeatDiscount = passengers.length > 0 ? discountAmount / passengers.length : discountAmount;
 
   for (const p of passengers) {
     const fullName = p.fullName ?? p.full_name ?? '';
@@ -257,6 +269,11 @@ async function handleBookingPaid(data: Record<string, unknown>) {
         departureTime: trip.departureTime,
         busPlate: trip.busPlate,
         totalAmount: perSeatAmount,
+        ticketSubtotal: perSeatSubtotal,
+        serviceFee: perSeatFee,
+        discountAmount: perSeatDiscount,
+        voucherCode,
+        finalAmount: perSeatAmount,
         paymentStatus: 'PAID',
         bookingStatus: BOOKING_STATUS.TICKET_ISSUED,
         qrCode,
@@ -362,6 +379,25 @@ const ticketServiceImpl = {
   GetTicket: async (call: grpc.ServerUnaryCall<{ ticket_id: string }, unknown>, callback: grpc.sendUnaryData<unknown>) => {
     try {
       const t = await prisma.ticket.findUnique({ where: { id: call.request.ticket_id } });
+      if (!t) return callback({ code: grpc.status.NOT_FOUND, message: 'Ticket not found' } as grpc.ServiceError, null);
+      callback(null, toTicketDetail(t));
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  GetTicketByCode: async (
+    call: grpc.ServerUnaryCall<{ ticket_code: string }, unknown>,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const code = call.request.ticket_code?.trim();
+      if (!code) {
+        return callback({ code: grpc.status.INVALID_ARGUMENT, message: 'ticket_code required' } as grpc.ServiceError, null);
+      }
+      const t = await prisma.ticket.findFirst({
+        where: { ticketCode: { equals: code, mode: 'insensitive' } },
+      });
       if (!t) return callback({ code: grpc.status.NOT_FOUND, message: 'Ticket not found' } as grpc.ServiceError, null);
       callback(null, toTicketDetail(t));
     } catch (err) {

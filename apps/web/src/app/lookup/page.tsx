@@ -23,12 +23,16 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Field } from '@/components/ui/Field';
 import { Input } from '@/components/ui/Input';
+import { PhoneInput } from '@/components/ui/PhoneInput';
 import { Badge } from '@/components/ui/Badge';
 import { SkeletonCard } from '@/components/ui/Skeleton';
 import toast from 'react-hot-toast';
 import { gql } from '@/lib/graphql';
 import { useAuth } from '@/hooks/useAuth';
+import { isValidPhoneNumber } from '@/lib/phone';
+import { isValidOptionalEmail } from '@/lib/email';
 import { CancelBookingButton } from '@/components/domain/CancelBookingButton';
+import { ETicketCard } from '@/components/ETicketCard';
 import type { ETicket } from '@/lib/tickets';
 
 type Passenger = {
@@ -77,7 +81,8 @@ function LookupContent() {
   const searchParams = useSearchParams();
   const [code, setCode] = useState('');
   const [email, setEmail] = useState('');
-  const [errors, setErrors] = useState<{ code?: string; email?: string }>({});
+  const [phone, setPhone] = useState('');
+  const [errors, setErrors] = useState<{ code?: string; email?: string; phone?: string }>({});
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [booking, setBooking] = useState<Booking | null>(null);
@@ -88,30 +93,41 @@ function LookupContent() {
   useEffect(() => {
     const codeParam = searchParams.get('code')?.trim() || '';
     const emailParam = searchParams.get('email')?.trim() || '';
+    const phoneParam = searchParams.get('phone')?.trim() || '';
     if (codeParam) setCode(codeParam);
     if (emailParam) setEmail(emailParam);
+    if (phoneParam) setPhone(phoneParam);
     if (codeParam && !autoLookupDone.current) {
       autoLookupDone.current = true;
-      void runLookup(codeParam, emailParam || undefined);
+      void runLookup(codeParam, emailParam || undefined, phoneParam || undefined);
     }
   }, [searchParams]);
 
-  function validateValues(bookingCode: string, lookupEmail?: string) {
+  function validateValues(bookingCode: string, lookupEmail?: string, lookupPhone?: string) {
     const next: typeof errors = {};
     const c = bookingCode.trim();
     if (!c) next.code = 'Vui lòng nhập mã vé';
     else if (!/^(BK|TK)[A-Z0-9]{4,}$/i.test(c.replace(/[^A-Za-z0-9]/g, ''))) {
       next.code = 'Mã vé không hợp lệ (VD: TKMQRPNMD3JMM)';
     }
-    if (lookupEmail) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lookupEmail)) next.email = 'Email không hợp lệ';
+    const em = lookupEmail?.trim() || '';
+    const ph = lookupPhone?.trim() || '';
+    if (!em && !ph) {
+      next.phone = 'Vui lòng nhập email hoặc số điện thoại đặt vé';
+    } else {
+      if (em && !isValidOptionalEmail(em)) {
+        next.email = 'Email không hợp lệ';
+      }
+      if (ph && !isValidPhoneNumber(ph)) {
+        next.phone = 'Số điện thoại không hợp lệ';
+      }
     }
     setErrors(next);
     return Object.keys(next).length === 0;
   }
 
-  async function runLookup(bookingCode: string, lookupEmail?: string) {
-    if (!validateValues(bookingCode, lookupEmail)) return;
+  async function runLookup(bookingCode: string, lookupEmail?: string, lookupPhone?: string) {
+    if (!validateValues(bookingCode, lookupEmail, lookupPhone)) return;
 
     setLoading(true);
     setSearched(true);
@@ -123,16 +139,25 @@ function LookupContent() {
 
     try {
       const data = await gql<{ bookingByCode: Booking }>(
-        `query($bookingCode:String!,$email:String){
-          bookingByCode(bookingCode:$bookingCode,email:$email){
+        `query($bookingCode:String!,$email:String,$phone:String){
+          bookingByCode(bookingCode:$bookingCode,email:$email,phone:$phone){
             id bookingCode status tripId totalAmount createdAt userId
             routeName origin destination operatorName departureTime paymentStatus
             passengers { fullName phone email seatId }
           }
         }`,
-        { bookingCode: normalizedCode, email: lookupEmail?.trim().toLowerCase() || null }
+        {
+          bookingCode: normalizedCode,
+          email: lookupEmail?.trim().toLowerCase() || null,
+          phone: lookupPhone?.trim() || null,
+        }
       );
       setBooking(data.bookingByCode);
+      if (!data.bookingByCode) {
+        setErrorMsg('Không tìm thấy vé với mã và thông tin xác minh đã nhập');
+        toast.error('Không tìm thấy vé');
+        return;
+      }
       toast.success('Tra cứu thành công!');
 
       if (data.bookingByCode.routeName && data.bookingByCode.departureTime) {
@@ -171,7 +196,7 @@ function LookupContent() {
 
   async function lookup(e?: React.FormEvent) {
     e?.preventDefault();
-    await runLookup(code.trim(), email.trim() || undefined);
+    await runLookup(code.trim(), email.trim() || undefined, phone.trim() || undefined);
   }
 
   return (
@@ -181,7 +206,7 @@ function LookupContent() {
           <div className="mb-6">
             <h1 className="text-display text-ink">Tra cứu vé</h1>
             <p className="mt-2 text-body text-ink-muted">
-              Nhập mã đặt vé để xem thông tin chi tiết và vé điện tử
+              Nhập mã đặt vé kèm email hoặc số điện thoại để xem thông tin chi tiết
             </p>
           </div>
 
@@ -203,7 +228,7 @@ function LookupContent() {
                 </div>
               </Field>
 
-              <Field label="Email đặt vé " error={errors.email}>
+              <Field label="Email đặt vé" error={errors.email} hint="Nhập email hoặc số điện thoại bên dưới">
                 <div className="relative">
                   <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-subtle" />
                   <Input
@@ -211,13 +236,25 @@ function LookupContent() {
                     value={email}
                     onChange={(e) => {
                       setEmail(e.target.value);
-                      setErrors((p) => ({ ...p, email: undefined }));
+                      setErrors((p) => ({ ...p, email: undefined, phone: undefined }));
                     }}
-                    placeholder="email@example.com"
+                    placeholder="email@example.com (nếu có)"
                     error={!!errors.email}
                     className="h-11 pl-10"
                   />
                 </div>
+              </Field>
+
+              <Field label="Số điện thoại đặt vé" error={errors.phone} hint="Bắt buộc nếu không có email">
+                <PhoneInput
+                  placeholder="0901234567"
+                  value={phone}
+                  onChange={(next) => {
+                    setPhone(next);
+                    setErrors((p) => ({ ...p, phone: undefined, email: undefined }));
+                  }}
+                  className="h-11"
+                />
               </Field>
 
               <Button
@@ -256,7 +293,9 @@ function LookupContent() {
                 <BookingResult
                   booking={booking}
                   trip={trip}
-                  onCancelled={() => void runLookup(booking.bookingCode, email || undefined)}
+                  lookupEmail={email.trim()}
+                  lookupPhone={phone.trim()}
+                  onCancelled={() => void runLookup(booking.bookingCode, email.trim() || undefined, phone.trim() || undefined)}
                 />
               </motion.div>
             )}
@@ -269,7 +308,7 @@ function LookupContent() {
                   </div>
                   <p className="mt-4 font-medium text-ink">Tra cứu nhanh bằng mã vé</p>
                   <p className="mt-1 text-caption text-ink-muted">
-                    Mã vé được gửi qua email sau khi thanh toán thành công
+                    Dùng mã đặt vé kèm email hoặc số điện thoại đã đăng ký khi đặt
                   </p>
                 </div>
               </motion.div>
@@ -284,13 +323,56 @@ function LookupContent() {
 function BookingResult({
   booking,
   trip,
+  lookupEmail,
+  lookupPhone,
   onCancelled,
 }: {
   booking: Booking;
   trip: TripDetail | null;
+  lookupEmail: string;
+  lookupPhone: string;
   onCancelled?: () => void;
 }) {
   const { isLoggedIn, user } = useAuth();
+  const [tickets, setTickets] = useState<ETicket[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const ownsBooking = isLoggedIn && !!booking.userId && user?.userId === booking.userId;
+  const canShowTicket =
+    booking.status === 'PAID' || booking.status === 'TICKET_ISSUED' || booking.status === 'CHECKED_IN';
+
+  useEffect(() => {
+    const email = lookupEmail.trim();
+    const ph = lookupPhone.trim();
+    if (!canShowTicket || (!email && !ph)) return;
+    let cancelled = false;
+    setTicketsLoading(true);
+    void gql<{ ticketsForBooking: ETicket[] }>(
+      `query($bookingId:ID!,$email:String,$phone:String){
+        ticketsForBooking(bookingId:$bookingId,email:$email,phone:$phone){
+          id ticketCode bookingId bookingCode tripId passengerName passengerPhone passengerEmail
+          seatId routeName origin destination operatorName pickupPoint dropoffPoint
+          departureTime busPlate totalAmount paymentStatus bookingStatus qrCode createdAt
+        }
+      }`,
+      {
+        bookingId: booking.bookingCode,
+        email: email ? email.toLowerCase() : null,
+        phone: ph || null,
+      }
+    )
+      .then((data) => {
+        if (!cancelled) setTickets(data.ticketsForBooking || []);
+      })
+      .catch(() => {
+        if (!cancelled) setTickets([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTicketsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [booking.bookingCode, booking.id, canShowTicket, lookupEmail, lookupPhone]);
   const cancelTicket: ETicket = {
     id: booking.id,
     ticketCode: booking.bookingCode,
@@ -404,23 +486,44 @@ function BookingResult({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {isLoggedIn && booking.userId && user?.userId === booking.userId ? (
+            {ownsBooking ? (
               <CancelBookingButton
                 ticket={cancelTicket}
                 bookingUserId={booking.userId}
                 onCancelled={onCancelled}
               />
             ) : null}
-            {(booking.status === 'PAID' || booking.status === 'TICKET_ISSUED' || booking.status === 'CHECKED_IN') && (
+          </div>
+        </div>
+
+        {canShowTicket && (
+          <div className="mt-8 border-t border-slate-100 pt-6">
+            <h3 className="mb-4 flex items-center gap-2 text-subtitle font-semibold text-ink">
+              <QrCode className="h-5 w-5 text-brand" />
+              Vé điện tử
+            </h3>
+            {ticketsLoading ? (
+              <SkeletonCard className="h-48 rounded-2xl" />
+            ) : tickets.length > 0 ? (
+              <div className="space-y-4">
+                {tickets.map((ticket) => (
+                  <ETicketCard key={ticket.id} ticket={ticket} />
+                ))}
+              </div>
+            ) : ownsBooking ? (
               <Link href={`/my-tickets/${booking.bookingCode}`}>
                 <Button size="lg" className="bg-gradient-to-r from-brand-600 to-brand-700">
                   <QrCode className="h-4 w-4" />
                   Xem vé điện tử
                 </Button>
               </Link>
+            ) : (
+              <p className="text-caption text-ink-muted">
+                Vé điện tử sẽ hiển thị tại đây sau khi hệ thống xuất vé.
+              </p>
             )}
           </div>
-        </div>
+        )}
       </div>
     </Card>
   );

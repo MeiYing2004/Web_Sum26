@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Booking {
+  id                String         @id @default(cuid())
+  bookingCode       String         @unique
+  tripId            String
+  userId            String?
+  guestEmail        String
+  status            String         @default("DRAFT")
+  paymentStatus     String         @default("PENDING")
+  holdToken         String?
+  ticketSubtotal    Float          @default(0)
+  serviceFee        Float          @default(0)
+  discountAmount    Float          @default(0)
+  totalAmount       Float
+  voucherId         String?
+  voucherCode       String?
+  paymentDeadline   DateTime?
+  routeName         String         @default("")
+  origin            String         @default("")
+  destination       String         @default("")
+  operatorName      String         @default("")
+  pickupPoint       String         @default("")
+  dropoffPoint      String         @default("")
+  departureTime     String         @default("")
+  busPlate          String         @default("")
+  tripType          String         @default("ONE_WAY")
+  checkedInAt       DateTime?
+  checkedInByUserId String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  passengers        Passenger[]
+  statusLogs        StatusLog[]
+  review            Review?
+  voucher           Voucher?       @relation(fields: [voucherId], references: [id], onDelete: SetNull)
+  voucherUsages     VoucherUsage[]
+
+  @@index([userId])
+  @@index([guestEmail])
+  @@index([bookingCode])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([voucherId])
+}
+
+model Voucher {
+  id                     String         @id @default(cuid())
+  code                   String         @unique
+  name                   String
+  description            String         @default("")
+  discountType           String
+  discountValue          Float
+  maxDiscount            Float?
+  minOrderValue          Float          @default(0)
+  startDate              DateTime
+  endDate                DateTime
+  usageLimit             Int?
+  usagePerUser           Int?
+  applicableRoutes       String         @default("[]")
+  applicableBusCompanies String         @default("[]")
+  applicableTripTypes    String         @default("[]")
+  requiresNewUser        Boolean        @default(false)
+  isActive               Boolean        @default(true)
+  usedCount              Int            @default(0)
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+  bookings               Booking[]
+  usages                 VoucherUsage[]
+}
+
+model VoucherUsage {
+  id             String   @id @default(cuid())
+  voucherId      String
+  bookingId      String
+  userId         String?
+  guestEmail     String?
+  discountAmount Float
+  createdAt      DateTime @default(now())
+  voucher        Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  booking        Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([voucherId])
+  @@index([bookingId])
+  @@index([userId])
+  @@index([guestEmail])
+}
+
+model Passenger {
+  id        String  @id @default(cuid())
+  bookingId String
+  fullName  String
+  phone     String
+  email     String
+  idNumber  String?
+  seatId    String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+model StatusLog {
+  id         String   @id @default(cuid())
+  bookingId  String
+  fromStatus String?
+  toStatus   String
+  createdAt  DateTime @default(now())
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id           String   @id @default(cuid())
+  bookingId    String   @unique
+  userId       String
+  tripId       String
+  reviewerName String
+  routeName    String   @default("")
+  origin       String   @default("")
+  destination  String   @default("")
+  rating       Int
+  comment      String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  booking      Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tripId])
+  @@index([createdAt])
+}

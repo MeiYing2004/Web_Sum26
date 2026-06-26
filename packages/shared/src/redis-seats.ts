@@ -1,8 +1,37 @@
 import Redis from 'ioredis';
 import { REDIS_KEYS, SEAT_HOLD_TTL_SECONDS } from './constants';
 
+function formatRedisError(err: unknown): string {
+  if (err instanceof AggregateError) {
+    const parts = err.errors
+      ?.map((e) => (e instanceof Error ? e.message : String(e)))
+      .filter(Boolean);
+    if (parts?.length) return parts.join('; ');
+    return err.message || 'ECONNREFUSED';
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return String(err);
+}
+
 export function createRedisClient(url: string): Redis {
-  return new Redis(url, { maxRetriesPerRequest: 3 });
+  const client = new Redis(url, {
+    // null = queue commands until connected (avoids MaxRetriesPerRequest crash during dev startup)
+    maxRetriesPerRequest: null,
+    retryStrategy(times) {
+      return Math.min(times * 500, 5000);
+    },
+  });
+
+  let lastErrorLog = 0;
+  client.on('error', (err) => {
+    const now = Date.now();
+    if (now - lastErrorLog > 10_000) {
+      console.warn(`[redis] ${formatRedisError(err)}`);
+      lastErrorLog = now;
+    }
+  });
+
+  return client;
 }
 
 export interface HoldResult {
@@ -124,6 +153,12 @@ export async function confirmSeatsInRedis(
     return { success: false, message: 'Hold token không khớp chuyến xe' };
   }
 
+  const expected = [...parsed.seatIds].sort().join(',');
+  const requested = [...seatIds].sort().join(',');
+  if (expected !== requested) {
+    return { success: false, message: 'Hold token không khớp danh sách ghế' };
+  }
+
   for (const seatId of seatIds) {
     const holdKey = REDIS_KEYS.seatHold(tripId, seatId);
     await redis.del(holdKey);
@@ -133,6 +168,72 @@ export async function confirmSeatsInRedis(
 
   await redis.del(REDIS_KEYS.holdToken(holdToken));
   return { success: true, message: 'Xác nhận ghế thành công' };
+}
+
+export async function validateHoldTokenInRedis(
+  redis: Redis,
+  tripId: string,
+  holdToken: string,
+  seatIds: string[]
+): Promise<{ valid: boolean; message: string }> {
+  const token = holdToken?.trim();
+  if (!token) {
+    return { valid: false, message: 'Thiếu mã giữ ghế' };
+  }
+
+  const tokenData = await redis.get(REDIS_KEYS.holdToken(token));
+  if (!tokenData) {
+    return { valid: false, message: 'Mã giữ ghế hết hạn hoặc không hợp lệ' };
+  }
+
+  let parsed: { tripId: string; seatIds: string[]; sessionId: string };
+  try {
+    parsed = JSON.parse(tokenData) as { tripId: string; seatIds: string[]; sessionId: string };
+  } catch {
+    return { valid: false, message: 'Mã giữ ghế không hợp lệ' };
+  }
+
+  if (parsed.tripId !== tripId) {
+    return { valid: false, message: 'Mã giữ ghế không khớp chuyến xe' };
+  }
+
+  const expected = [...parsed.seatIds].sort().join(',');
+  const requested = [...seatIds].sort().join(',');
+  if (expected !== requested) {
+    return { valid: false, message: 'Mã giữ ghế không khớp ghế đã chọn' };
+  }
+
+  for (const seatId of seatIds) {
+    const holdKey = REDIS_KEYS.seatHold(tripId, seatId);
+    const heldBy = await redis.get(holdKey);
+    if (!heldBy || heldBy !== parsed.sessionId) {
+      return { valid: false, message: `Ghế ${seatId} không còn được giữ` };
+    }
+  }
+
+  return { valid: true, message: 'OK' };
+}
+
+/** Release every held seat for a trip (e.g. after departure). */
+export async function releaseAllTripHolds(redis: Redis, tripId: string): Promise<number> {
+  const heldKey = REDIS_KEYS.seatStatus(tripId) + ':held';
+  const heldSeats = await redis.smembers(heldKey);
+  let released = 0;
+
+  for (const seatId of heldSeats) {
+    const holdKey = REDIS_KEYS.seatHold(tripId, seatId);
+    const sessionId = await redis.get(holdKey);
+    if (sessionId) {
+      const ok = await releaseSeatInRedis(redis, tripId, seatId, sessionId);
+      if (ok) released += 1;
+    } else {
+      await redis.del(holdKey);
+      await redis.srem(heldKey, seatId);
+      released += 1;
+    }
+  }
+
+  return released;
 }
 
 export async function unbookSeatsInRedis(

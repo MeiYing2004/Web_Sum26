@@ -1,5 +1,5 @@
 import * as grpc from '@grpc/grpc-js';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from './generated/client';
 import { TripService } from '@bus/proto';
 import {
   createRedisClient,
@@ -18,9 +18,17 @@ import {
   getTripAvailability,
   filterByDepartureDate,
   departureTimeVN,
+  departureDateVN,
+  isDepartureOnTravelDate,
   TRIP_STATUS,
+  getSeatStatuses,
+  todayVN,
 } from '@bus/shared';
 import { createAdminCrudHandlers } from './admin-crud';
+import { getPlatformTripStats } from './platform-stats';
+import { listFeaturedOperators } from './featured-operators';
+import { listFeaturedDestinations } from './featured-destinations';
+import { startTripStatusSyncJob, syncTripStatusIfNeeded, syncTripsBatch } from './sync-trip-status';
 
 const prisma = new PrismaClient();
 const redis = createRedisClient(process.env.REDIS_URL || 'redis://localhost:6379');
@@ -29,6 +37,16 @@ const GRPC_PORT = process.env.GRPC_PORT || '50053';
 
 function durationMinutes(dep: Date, arr: Date) {
   return Math.round((arr.getTime() - dep.getTime()) / 60000);
+}
+
+async function countAvailableSeats(tripId: string, layoutType: string, layoutJson?: string): Promise<number> {
+  const layout = layoutJson
+    ? parseLayoutJson(layoutJson)
+    : DEFAULT_LAYOUTS[layoutType] || DEFAULT_LAYOUTS['bus-29'];
+  const seatIds = extractSeatIds(layout);
+  if (!seatIds.length) return 0;
+  const statuses = await getSeatStatuses(redis, tripId, seatIds);
+  return seatIds.filter((id) => statuses[id]?.status === 'AVAILABLE').length;
 }
 
 async function cacheBusLayouts() {
@@ -46,17 +64,14 @@ async function autocompleteWithCache(query: string) {
   if (cached) return JSON.parse(cached);
 
   const normQ = normalizeVietnamese(q);
-  const activeRoutes = await prisma.trip.findMany({
-    where: {
-      status: TRIP_STATUS.ACTIVE,
-      departureTime: { gte: new Date() },
-    },
-    include: { route: true },
+  const allRoutes = await prisma.route.findMany({
+    select: { origin: true, destination: true, stops: { select: { name: true } } },
   });
   const activeLocationSet = new Set<string>();
-  for (const trip of activeRoutes) {
-    activeLocationSet.add(trip.route.origin);
-    activeLocationSet.add(trip.route.destination);
+  for (const route of allRoutes) {
+    activeLocationSet.add(route.origin);
+    activeLocationSet.add(route.destination);
+    for (const stop of route.stops) activeLocationSet.add(stop.name);
   }
   const locations = await prisma.location.findMany({ take: 200 });
   const suggestions = locations
@@ -85,7 +100,46 @@ async function autocompleteWithCache(query: string) {
   return result;
 }
 
+function sortLocationsVi(names: Iterable<string>): string[] {
+  return [...new Set(names)].sort((a, b) => a.localeCompare(b, 'vi'));
+}
+
+async function getRouteEndpoints() {
+  const allRoutes = await prisma.route.findMany({
+    select: {
+      origin: true,
+      destination: true,
+      stops: { select: { name: true } },
+    },
+  });
+
+  const locationSet = new Set<string>();
+  const originSet = new Set<string>();
+  const destSet = new Set<string>();
+  const route_pairs: Array<{ origin: string; destination: string }> = [];
+
+  for (const route of allRoutes) {
+    locationSet.add(route.origin);
+    locationSet.add(route.destination);
+    originSet.add(route.origin);
+    destSet.add(route.destination);
+    route_pairs.push({ origin: route.origin, destination: route.destination });
+    for (const stop of route.stops) {
+      locationSet.add(stop.name);
+    }
+  }
+
+  return {
+    locations: sortLocationsVi(locationSet),
+    origins: sortLocationsVi(originSet),
+    destinations: sortLocationsVi(destSet),
+    route_pairs,
+  };
+}
+
 async function getRouteCatalog(travelDateRaw: string, limit?: number) {
+  const endpoints = await getRouteEndpoints();
+
   const travelDate = parseTravelDate(travelDateRaw);
   const { start, end } = vnDayBounds(travelDate);
   const trips = await prisma.trip.findMany({
@@ -108,13 +162,10 @@ async function getRouteCatalog(travelDateRaw: string, limit?: number) {
       next_departure_time: string;
     }
   >();
-  const locations = new Set<string>();
 
   for (const trip of trips) {
     const origin = trip.route.origin;
     const destination = trip.route.destination;
-    locations.add(origin);
-    locations.add(destination);
     const key = `${origin}__${destination}`;
     const duration = durationMinutes(trip.departureTime, trip.arrivalTime);
     const departureIso = trip.departureTime.toISOString();
@@ -139,8 +190,9 @@ async function getRouteCatalog(travelDateRaw: string, limit?: number) {
     (a, b) => b.trips_count - a.trips_count || a.next_departure_time.localeCompare(b.next_departure_time)
   );
   if (limit && limit > 0) routes = routes.slice(0, limit);
+
   return {
-    locations: [...locations].sort((a, b) => a.localeCompare(b, 'vi')),
+    ...endpoints,
     routes,
   };
 }
@@ -164,12 +216,24 @@ type TripResult = {
   price: number;
   available_seats: number;
   duration_minutes: number;
+  status: string;
   bookable: boolean;
   availability_status: string;
   availability_label: string;
+  effective_status: string;
+  display_status: string;
+  display_status_label: string;
 };
 
-type TripSearchBase = Omit<TripResult, 'bookable' | 'availability_status' | 'availability_label'>;
+type TripSearchBase = Omit<
+  TripResult,
+  | 'bookable'
+  | 'availability_status'
+  | 'availability_label'
+  | 'effective_status'
+  | 'display_status'
+  | 'display_status_label'
+>;
 
 function applyTripFilters(
   results: TripSearchBase[],
@@ -216,13 +280,20 @@ function applyTripFilters(
 }
 
 function applyTripAvailability(results: TripSearchBase[], travelDate: string): TripResult[] {
+  const now = new Date();
   return filterByDepartureDate(results, travelDate).map((t) => {
-    const av = getTripAvailability(travelDate, t.departure_time, new Date(), t.available_seats);
+    const av = getTripAvailability(travelDate, t.departure_time, now, t.available_seats, {
+      arrivalTimeIso: t.arrival_time,
+      dbStatus: t.status || TRIP_STATUS.ACTIVE,
+    });
     return {
       ...t,
       bookable: av.bookable,
       availability_status: av.availabilityStatus,
       availability_label: av.availabilityLabel,
+      effective_status: av.effectiveStatus,
+      display_status: av.displayStatus,
+      display_status_label: av.displayStatusLabel,
     };
   });
 }
@@ -256,7 +327,7 @@ async function searchTrips(params: {
 
     const trips = await prisma.trip.findMany({
       where: {
-        status: TRIP_STATUS.ACTIVE,
+        status: { in: [TRIP_STATUS.ACTIVE, TRIP_STATUS.DEPARTED, TRIP_STATUS.COMPLETED] },
         route: { origin: resolvedOrigin, destination: resolvedDestination },
         departureTime: { gte: start, lte: end },
         ...(params.operator_filter
@@ -269,25 +340,32 @@ async function searchTrips(params: {
       include: { route: true, bus: true, operator: true },
     });
 
-    baseResults = filterByDepartureDate(
-      trips.map((t) => {
-        redis.set(REDIS_KEYS.tripBus(t.id), t.bus.layoutType);
-        return {
-          id: t.id,
-          route_name: t.route.name,
-          origin: t.route.origin,
-          destination: t.route.destination,
-          operator_name: t.operator.name,
-          bus_type: t.bus.busType,
-          departure_time: t.departureTime.toISOString(),
-          arrival_time: t.arrivalTime.toISOString(),
-          price: t.price,
-          available_seats: Math.max(0, t.bus.seatCount - 5),
-          duration_minutes: durationMinutes(t.departureTime, t.arrivalTime),
-        };
-      }),
-      travelDate
-    );
+    baseResults = [];
+    const statusMap = await syncTripsBatch(prisma, redis, trips);
+    for (const t of trips) {
+      const departureIso = t.departureTime.toISOString();
+      if (!isDepartureOnTravelDate(departureIso, travelDate)) continue;
+      const layoutJson =
+        t.bus.seatLayoutJson && Object.keys(t.bus.seatLayoutJson as object).length > 0
+          ? JSON.stringify(t.bus.seatLayoutJson)
+          : JSON.stringify(DEFAULT_LAYOUTS[t.bus.layoutType] || DEFAULT_LAYOUTS['bus-29']);
+      await redis.set(REDIS_KEYS.tripBus(t.id), t.bus.layoutType);
+      const availableSeats = await countAvailableSeats(t.id, t.bus.layoutType, layoutJson);
+      baseResults.push({
+        id: t.id,
+        route_name: t.route.name,
+        origin: t.route.origin,
+        destination: t.route.destination,
+        operator_name: t.operator.name,
+        bus_type: t.bus.busType,
+        departure_time: t.departureTime.toISOString(),
+        arrival_time: t.arrivalTime.toISOString(),
+        price: t.price,
+        available_seats: availableSeats,
+        duration_minutes: durationMinutes(t.departureTime, t.arrivalTime),
+        status: statusMap.get(t.id) ?? t.status,
+      });
+    }
 
     await redis.setex(cacheKey, 300, JSON.stringify(baseResults));
     publishSearchEvent(KAFKA_BROKERS, {
@@ -323,6 +401,14 @@ const tripServiceImpl = {
       });
       if (!t) return callback({ code: grpc.status.NOT_FOUND, message: 'Trip not found' } as grpc.ServiceError, null);
 
+      const status = await syncTripStatusIfNeeded(prisma, redis, t);
+      const now = new Date();
+      const travelDate = departureDateVN(t.departureTime.toISOString());
+      const av = getTripAvailability(travelDate, t.departureTime.toISOString(), now, t.bus.seatCount, {
+        arrivalTimeIso: t.arrivalTime.toISOString(),
+        dbStatus: status,
+      });
+
       const layoutJson =
         t.bus.seatLayoutJson && Object.keys(t.bus.seatLayoutJson as object).length > 0
           ? JSON.stringify(t.bus.seatLayoutJson)
@@ -348,6 +434,14 @@ const tripServiceImpl = {
         bus_plate: t.bus.plate,
         total_seats: t.bus.seatCount,
         seat_layout_json: layoutJson,
+        status,
+        bookable: av.bookable,
+        availability_status: av.availabilityStatus,
+        availability_label: av.availabilityLabel,
+        effective_status: av.effectiveStatus,
+        display_status: av.displayStatus,
+        display_status_label: av.displayStatusLabel,
+        server_now: now.toISOString(),
       });
     } catch (err) {
       callback(err as grpc.ServiceError, null);
@@ -388,13 +482,47 @@ const tripServiceImpl = {
 
   CountActiveTrips: async (_call: grpc.ServerUnaryCall<unknown, unknown>, callback: grpc.sendUnaryData<unknown>) => {
     try {
+      const { start, end } = vnDayBounds(todayVN());
       const count = await prisma.trip.count({
         where: {
-          status: TRIP_STATUS.ACTIVE,
-          departureTime: { gte: new Date() },
+          status: { in: [TRIP_STATUS.ACTIVE, TRIP_STATUS.DEPARTED] },
+          departureTime: { gte: start, lte: end },
         },
       });
       callback(null, { count });
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  GetPlatformTripStats: async (_call: grpc.ServerUnaryCall<unknown, unknown>, callback: grpc.sendUnaryData<unknown>) => {
+    try {
+      const stats = await getPlatformTripStats(prisma);
+      callback(null, stats);
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  ListFeaturedOperators: async (
+    call: grpc.ServerUnaryCall<{ limit?: number }, unknown>,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const operators = await listFeaturedOperators(prisma, call.request.limit || 12);
+      callback(null, { operators });
+    } catch (err) {
+      callback(err as grpc.ServiceError, null);
+    }
+  },
+
+  ListFeaturedDestinations: async (
+    _call: grpc.ServerUnaryCall<unknown, unknown>,
+    callback: grpc.sendUnaryData<unknown>
+  ) => {
+    try {
+      const destinations = await listFeaturedDestinations(prisma);
+      callback(null, { destinations });
     } catch (err) {
       callback(err as grpc.ServiceError, null);
     }
@@ -417,8 +545,25 @@ function formatDateFromTrip(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(d);
 }
 
+async function cacheBusLayoutsWithRetry(attempts = 15) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await cacheBusLayouts();
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (i === attempts - 1) {
+        console.warn(`cacheBusLayouts: Redis chưa sẵn sàng sau ${attempts} lần thử — tiếp tục khởi động (${msg})`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+}
+
 async function startServer() {
-  await cacheBusLayouts();
+  await cacheBusLayoutsWithRetry();
+  startTripStatusSyncJob(prisma, redis);
   const server = new grpc.Server();
   server.addService(TripService.service, tripServiceImpl);
   const port = `0.0.0.0:${GRPC_PORT}`;

@@ -12,18 +12,21 @@ module.exports = {
       },
       colors: {
         brand: {
-          DEFAULT: '#0066ff',
+          DEFAULT: '#2563EB',
           50: '#eff6ff',
           100: '#dbeafe',
           200: '#bfdbfe',
           300: '#93c5fd',
           400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#0066ff',
-          700: '#0052cc',
-          800: '#003d99',
-          900: '#002966',
+          500: '#3B82F6',
+          600: '#2563EB',
+          700: '#1d4ed8',
+          800: '#1e40af',
+          900: '#1e3a8a',
           foreground: '#ffffff',
+        },
+        border: {
+          DEFAULT: '#E5E7EB',
         },
         accent: {
           DEFAULT: '#ff6b35',
@@ -36,9 +39,9 @@ module.exports = {
           subtle: '#8b9cb3',
         },
         surface: {
-          DEFAULT: '#f6f8fb',
-          raised: '#ffffff',
-          sunken: '#eef2f7',
+          DEFAULT: '#F8FAFC',
+          raised: '#FFFFFF',
+          sunken: '#F1F5F9',
           hero: '#0a1628',
         },
         success: {
@@ -68,6 +71,10 @@ module.exports = {
       spacing: {
         18: '4.5rem',
         22: '5.5rem',
+        30: '7.5rem',
+      },
+      maxWidth: {
+        container: '82.5rem',
       },
       boxShadow: {
         card: '0 1px 2px rgba(10,22,40,0.04), 0 4px 16px rgba(10,22,40,0.06)',
@@ -78,14 +85,19 @@ module.exports = {
         nav: '0 4px 20px rgba(10,22,40,0.08), 0 1px 3px rgba(10,22,40,0.04)',
         glass: '0 8px 32px rgba(0,102,255,0.06), inset 0 1px 0 rgba(255,255,255,0.7)',
         search:
-          '0 4px 6px rgba(10,22,40,0.02), 0 20px 50px rgba(0,102,255,0.12), 0 0 0 1px rgba(255,255,255,0.8)',
+          '0 8px 16px rgba(10,22,40,0.04), 0 24px 64px rgba(37,99,235,0.14), 0 0 0 1px rgba(255,255,255,0.9)',
+        'search-hover':
+          '0 12px 24px rgba(10,22,40,0.06), 0 32px 80px rgba(37,99,235,0.18), 0 0 0 1px rgba(255,255,255,0.95)',
+        soft: '0 4px 24px rgba(10,22,40,0.06), 0 12px 40px rgba(37,99,235,0.05)',
         'inner-soft': 'inset 0 2px 4px rgba(10,22,40,0.04)',
       },
       fontSize: {
         display: [
-          'clamp(2rem, 5vw, 3rem)',
-          { lineHeight: '1.15', letterSpacing: '-0.03em', fontWeight: '700' },
+          'clamp(2.25rem, 5vw, 3rem)',
+          { lineHeight: '1.12', letterSpacing: '-0.03em', fontWeight: '700' },
         ],
+        'section-title': ['2rem', { lineHeight: '2.5rem', letterSpacing: '-0.02em', fontWeight: '700' }],
+        'card-title': ['1.25rem', { lineHeight: '1.75rem', fontWeight: '600' }],
         title: ['1.5rem', { lineHeight: '2rem', letterSpacing: '-0.02em', fontWeight: '600' }],
         subtitle: ['1.125rem', { lineHeight: '1.75rem', fontWeight: '500' }],
         body: ['0.9375rem', { lineHeight: '1.5rem' }],

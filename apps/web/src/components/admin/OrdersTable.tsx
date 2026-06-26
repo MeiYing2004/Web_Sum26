@@ -46,7 +46,7 @@ export default function OrdersTable({ orders }: Props) {
               </TableHeader>
               <TableBody>
                 {orders.map((o) => (
-                  <TableRow key={o.ticketCode}>
+                  <TableRow key={`${o.bookingCode}-${o.seatId}`}>
                     <TableCell>
                       <p className="font-semibold">{o.ticketCode}</p>
                       <p className="text-micro text-ink-muted">{o.bookingCode}</p>

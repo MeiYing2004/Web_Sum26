@@ -9,6 +9,7 @@ service TicketService {
   rpc ListForUser(ListForUserRequest) returns (ListTicketsResponse);
   rpc Search(SearchTicketsRequest) returns (ListTicketsResponse);
   rpc GetTicket(GetTicketRequest) returns (TicketDetail);
+  rpc GetTicketByCode(GetTicketByCodeRequest) returns (TicketDetail);
   rpc CancelByBooking(CancelByBookingRequest) returns (CancelByBookingResponse);
   rpc GetAdminInsights(GetAdminInsightsRequest) returns (GetAdminInsightsResponse);
 }
@@ -36,6 +37,11 @@ message TicketDetail {
   string booking_status = 20;
   string qr_code = 21;
   string created_at = 22;
+  double ticket_subtotal = 23;
+  double service_fee = 24;
+  double discount_amount = 25;
+  string voucher_code = 26;
+  double final_amount = 27;
 }
 
 message ListByBookingRequest {
@@ -56,6 +62,10 @@ message SearchTicketsRequest {
 
 message GetTicketRequest {
   string ticket_id = 1;
+}
+
+message GetTicketByCodeRequest {
+  string ticket_code = 1;
 }
 
 message CancelByBookingRequest {

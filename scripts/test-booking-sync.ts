@@ -160,10 +160,10 @@ async function main() {
   const paid = await gql<{
     processPayment: { success: boolean; bookingCode: string };
   }>(
-    `mutation($bookingId:ID!,$simulateSuccess:Boolean!){
-      processPayment(bookingId:$bookingId,simulateSuccess:$simulateSuccess){success bookingCode}
+    `mutation($bookingId:ID!,$guestEmail:String!){
+      processPayment(bookingId:$bookingId,guestEmail:$guestEmail){success bookingCode}
     }`,
-    { bookingId, simulateSuccess: true },
+    { bookingId, guestEmail: email },
     token
   );
   assert('Thanh toán thành công', paid.processPayment.success);
@@ -171,8 +171,8 @@ async function main() {
   const myTickets = await gql<{
     myTickets: Array<{ bookingCode: string; bookingId: string }>;
   }>(
-    `query($email:String){ myTickets(email:$email){ bookingCode bookingId } }`,
-    { email },
+    `query{ myTickets{ bookingCode bookingId } }`,
+    {},
     token
   );
   const foundInList = myTickets.myTickets.some((t) => t.bookingCode === bookingCode);

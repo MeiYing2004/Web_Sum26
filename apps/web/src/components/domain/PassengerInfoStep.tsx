@@ -7,6 +7,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Field } from '@/components/ui/Field';
 import { Badge } from '@/components/ui/Badge';
+import { PhoneInput } from '@/components/ui/PhoneInput';
+import { phoneFieldError, sanitizePhoneInput } from '@/lib/phone';
+import { emailFieldError } from '@/lib/email';
 import { cn } from '@/lib/cn';
 
 export type PassengerDraft = {
@@ -84,7 +87,13 @@ export function PassengerInfoStep({
         <SavedPassengerPicker
           passengerIndex={0}
           className="mb-4"
-          onApply={(data) => onBookerChange({ ...booker, ...data })}
+          onApply={(data) =>
+            onBookerChange({
+              ...booker,
+              ...data,
+              phone: sanitizePhoneInput(data.phone),
+            })
+          }
         />
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -96,18 +105,18 @@ export function PassengerInfoStep({
               className="h-11"
             />
           </Field>
-          <Field label="Số điện thoại" required>
-            <Input
+          <Field label="Số điện thoại" required error={phoneFieldError(booker.phone)}>
+            <PhoneInput
               placeholder="0901234567"
               value={booker.phone}
-              onChange={(e) => onBookerChange({ ...booker, phone: e.target.value })}
+              onChange={(phone) => onBookerChange({ ...booker, phone })}
               className="h-11"
             />
           </Field>
-          <Field label="Email" required>
+          <Field label="Email" error={emailFieldError(booker.email)} hint="Không bắt buộc — nhập nếu muốn nhận vé qua email">
             <Input
               type="email"
-              placeholder="email@example.com"
+              placeholder="email@example.com (tùy chọn)"
               value={booker.email}
               onChange={(e) => onBookerChange({ ...booker, email: e.target.value })}
               className="h-11"
@@ -171,11 +180,16 @@ export function PassengerInfoStep({
                       onChange={(e) => onPassengerFieldChange(i, 'fullName', e.target.value)}
                     />
                   </Field>
-                  <Field label="Số điện thoại" required className="sm:col-span-2">
-                    <Input
+                  <Field
+                    label="Số điện thoại"
+                    required
+                    className="sm:col-span-2"
+                    error={phoneFieldError(p.phone)}
+                  >
+                    <PhoneInput
                       placeholder="0901234567"
                       value={p.phone}
-                      onChange={(e) => onPassengerFieldChange(i, 'phone', e.target.value)}
+                      onChange={(phone) => onPassengerFieldChange(i, 'phone', phone)}
                     />
                   </Field>
                 </div>

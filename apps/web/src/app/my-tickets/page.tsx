@@ -17,16 +17,19 @@ import {
   groupTicketsByBooking,
   formatTicketDateTime,
 } from '@/lib/tickets';
+import { type Review, REVIEW_FIELDS } from '@/lib/reviews';
 import { PageShell, PageHeader } from '@/components/ui/PageShell';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { SkeletonCard } from '@/components/ui/Skeleton';
+import { SkeletonTicketList } from '@/components/ui/Skeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { cn } from '@/lib/cn';
 
 function MyTicketsContent() {
   const searchParams = useSearchParams();
   const [tickets, setTickets] = useState<ETicket[]>([]);
+  const [reviewsByBooking, setReviewsByBooking] = useState<Record<string, Review>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -49,7 +52,7 @@ function MyTicketsContent() {
     setError('');
     try {
       const profile = getStoredProfile();
-      const data = await gql<{ myTickets: ETicket[] }>(
+      const ticketData = await gql<{ myTickets: ETicket[] }>(
         `query($search:String,$filter:String,$email:String){
           myTickets(search:$search,filter:$filter,email:$email){${ETICKET_FIELDS}}
         }`,
@@ -59,7 +62,20 @@ function MyTicketsContent() {
           email: profile?.email || null,
         }
       );
-      setTickets(data.myTickets);
+      setTickets(ticketData.myTickets);
+
+      const reviewMap: Record<string, Review> = {};
+      try {
+        const reviewData = await gql<{ myReviews: Review[] }>(
+          `query { myReviews {${REVIEW_FIELDS}} }`
+        );
+        for (const review of reviewData.myReviews) {
+          reviewMap[review.bookingId] = review;
+        }
+      } catch {
+        /* review API chưa sẵn sàng — vẫn hiển thị vé */
+      }
+      setReviewsByBooking(reviewMap);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể tải vé');
       setTickets([]);
@@ -67,6 +83,10 @@ function MyTicketsContent() {
       setLoading(false);
     }
   }, [debouncedSearch, filter]);
+
+  const handleReviewSubmitted = useCallback((review: Review) => {
+    setReviewsByBooking((prev) => ({ ...prev, [review.bookingId]: review }));
+  }, []);
 
   useEffect(() => {
     fetchTickets();
@@ -122,10 +142,7 @@ function MyTicketsContent() {
 
         <div className="space-y-8">
           <AnimatePresence mode="wait">
-            {loading &&
-              Array.from({ length: 2 }).map((_, i) => (
-                <SkeletonCard key={`skeleton-${i}`} className="h-48" />
-              ))}
+            {loading && <SkeletonTicketList count={2} />}
           </AnimatePresence>
 
           {error && (
@@ -135,23 +152,17 @@ function MyTicketsContent() {
           )}
 
           {!loading && !error && groups.length === 0 && (
-            <Card variant="dashed" padding="lg" className="text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-brand-50">
-                <Ticket className="h-7 w-7 text-brand" />
-              </div>
-              <p className="mt-4 text-subtitle text-ink">Chưa có vé nào</p>
-              <p className="mt-1 text-caption text-ink-muted">
-                {debouncedSearch || filter !== 'ALL'
+            <EmptyState
+              icon={Ticket}
+              title="Không có vé"
+              description={
+                debouncedSearch || filter !== 'ALL'
                   ? 'Không tìm thấy vé phù hợp bộ lọc'
-                  : 'Đặt chuyến xe đầu tiên để nhận vé điện tử'}
-              </p>
-              <Link href="/">
-                <Button className="mt-5">
-                  Tìm chuyến xe
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
-            </Card>
+                  : 'Đặt chuyến xe đầu tiên để nhận vé điện tử'
+              }
+              actionLabel="Tìm chuyến xe"
+              actionHref="/"
+            />
           )}
 
           {!loading &&
@@ -180,18 +191,22 @@ function MyTicketsContent() {
                         </p>
                       </div>
                     </div>
-                    <Link href={`/my-tickets/${first.bookingCode}`}>
-                      <Button variant="secondary" size="sm">
-                        Xem tất cả
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </Button>
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link href={`/my-tickets/${first.bookingCode}`}>
+                        <Button variant="secondary" size="sm">
+                          Xem tất cả
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </Button>
+                      </Link>
+                    </div>
                   </Card>
                   <ETicketCard
                     ticket={first}
                     compact
                     showActions
                     allowCancel
+                    review={reviewsByBooking[bookingId]}
+                    onReviewSubmitted={handleReviewSubmitted}
                     onCancelled={fetchTickets}
                   />
                 </motion.div>

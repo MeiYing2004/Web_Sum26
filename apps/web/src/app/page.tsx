@@ -1,38 +1,44 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import Image from 'next/image';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import {
   Bus,
-  ChevronRight,
-  Quote,
   Shield,
   Sparkles,
   Star,
-  Tag,
 } from 'lucide-react';
 import { gql } from '@/lib/graphql';
 import { useDebounce } from '@/hooks/useDebounce';
 import { formatDisplayDate, todayVN } from '@/lib/datetime';
 import { useTravelDateWithTodaySync } from '@/hooks/useTodayVN';
 import { normalizeSearchTrips, TRIP_SEARCH_FIELDS, type TripSearchResult } from '@/lib/trip-availability';
-import { buildTripsSeoUrl } from '@/lib/trip-search';
-import { fetchRouteCatalog, filterLocationSuggestions, formatDurationMinutes, type CatalogRoute } from '@/lib/route-catalog';
+import { fetchRouteCatalog, filterLocationSuggestions, destinationsForOrigin, originsForDestination, type CatalogRoute, type RouteCatalog, EMPTY_ROUTE_CATALOG } from '@/lib/route-catalog';
 import { TripResultCard } from '@/components/domain/TripResultCard';
 import { TripSearchBox } from '@/components/domain/TripSearchBox';
 import { PromoVoucherCard } from '@/components/domain/PromoVoucherCard';
-import { SkeletonCard } from '@/components/ui/Skeleton';
 import {
-  FEATURED_DESTINATIONS,
-  FEATURED_OPERATORS,
+  SkeletonPopularRoute,
+  SkeletonTripCard,
+} from '@/components/ui/Skeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { StatsSection } from '@/components/marketing/StatsSection';
+import { WhyChooseUsSection } from '@/components/marketing/WhyChooseUsSection';
+import { FAQSection } from '@/components/marketing/FAQSection';
+import { AppDownloadSection } from '@/components/marketing/AppDownloadSection';
+import { ReviewsSection } from '@/components/marketing/ReviewsSection';
+import { FeaturedOperatorsSection } from '@/components/marketing/FeaturedOperatorsSection';
+import { PopularRouteCard } from '@/components/marketing/PopularRouteCard';
+import { FeaturedDestinationsSection } from '@/components/marketing/FeaturedDestinationsSection';
+import { SAMPLE_REVIEWS } from '@/lib/marketing-content';
+import {
   PROMOTIONS,
-  TESTIMONIALS,
 } from '@/lib/marketing';
-import { getDestinationImage, getHeroImage } from '@/lib/images';
+import { type Review } from '@/lib/reviews';
+import { HeroCarousel } from '@/components/marketing/HeroCarousel';
+import { showToast } from '@/lib/toast';
 import { cn } from '@/lib/cn';
-import toast from 'react-hot-toast';
 
 const SORT_OPTIONS = [
   { value: 'DEPART_EARLY', label: 'Sớm nhất' },
@@ -72,12 +78,43 @@ export default function HomePage() {
   const [sortBy, setSortBy] = useState('DEPART_EARLY');
   const [originSuggestions, setOriginSuggestions] = useState<Array<{ name: string }>>([]);
   const [destSuggestions, setDestSuggestions] = useState<Array<{ name: string }>>([]);
-  const [catalogLocations, setCatalogLocations] = useState<string[]>([]);
+  const [catalog, setCatalog] = useState<RouteCatalog>(EMPTY_ROUTE_CATALOG);
   const [popularRoutes, setPopularRoutes] = useState<CatalogRoute[]>([]);
+  const [routesLoading, setRoutesLoading] = useState(true);
   const [copiedPromoCode, setCopiedPromoCode] = useState<string | null>(null);
+  const [featuredReviews, setFeaturedReviews] = useState<Review[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
 
   const debouncedOrigin = useDebounce(originQuery, 300);
   const debouncedDest = useDebounce(destQuery, 300);
+
+  /** API reviews hoặc mẫu tối thiểu 6 đánh giá */
+  const displayReviews = useMemo(() => {
+    if (featuredReviews.length >= 6) {
+      return featuredReviews.map((r) => ({
+        id: r.id,
+        reviewerName: r.reviewerName,
+        routeLabel: r.routeLabel,
+        rating: r.rating,
+        comment: r.comment,
+        createdAt: r.createdAt,
+      }));
+    }
+    const apiIds = new Set(featuredReviews.map((r) => r.id));
+    const samples = SAMPLE_REVIEWS.filter((s) => !apiIds.has(s.id));
+    const merged = [
+      ...featuredReviews.map((r) => ({
+        id: r.id,
+        reviewerName: r.reviewerName,
+        routeLabel: r.routeLabel,
+        rating: r.rating,
+        comment: r.comment,
+        createdAt: r.createdAt,
+      })),
+      ...samples,
+    ];
+    return merged.length >= 6 ? merged.slice(0, 6) : SAMPLE_REVIEWS;
+  }, [featuredReviews]);
 
   const sortedTrips = useMemo(() => {
     const copy = [...trips];
@@ -91,23 +128,32 @@ export default function HomePage() {
     }
   }, [trips, sortBy]);
 
-  useEffect(() => {
-    setOriginSuggestions(filterLocationSuggestions(catalogLocations, debouncedOrigin));
-  }, [catalogLocations, debouncedOrigin]);
+  const originOptions = useMemo(
+    () => (destination ? originsForDestination(catalog, destination) : catalog.origins),
+    [catalog, destination]
+  );
+  const destOptions = useMemo(
+    () => (origin ? destinationsForOrigin(catalog, origin) : catalog.destinations),
+    [catalog, origin]
+  );
 
   useEffect(() => {
-    setDestSuggestions(filterLocationSuggestions(catalogLocations, debouncedDest));
-  }, [catalogLocations, debouncedDest]);
+    setOriginSuggestions(filterLocationSuggestions(originOptions, debouncedOrigin));
+  }, [originOptions, debouncedOrigin]);
 
   useEffect(() => {
+    setDestSuggestions(filterLocationSuggestions(destOptions, debouncedDest));
+  }, [destOptions, debouncedDest]);
+
+  useEffect(() => {
+    setRoutesLoading(true);
     fetchRouteCatalog(travelDate, 6)
-      .then((catalog) => {
-        setCatalogLocations(catalog.locations);
-        setPopularRoutes(catalog.routes);
-        if (!catalog.routes.length) return;
-        const hasCurrentRoute = catalog.routes.some((r) => r.origin === origin && r.destination === destination);
-        if (!hasCurrentRoute && !hasSearched) {
-          const first = catalog.routes[0];
+      .then((nextCatalog) => {
+        setCatalog(nextCatalog);
+        setPopularRoutes(nextCatalog.routes);
+        if (!nextCatalog.routePairs.length) return;
+        if (!origin && !destination && !hasSearched) {
+          const first = nextCatalog.routePairs[0];
           setOrigin(first.origin);
           setOriginQuery(first.origin);
           setDestination(first.destination);
@@ -115,10 +161,21 @@ export default function HomePage() {
         }
       })
       .catch(() => {
-        setCatalogLocations([]);
+        setCatalog(EMPTY_ROUTE_CATALOG);
         setPopularRoutes([]);
-      });
-  }, [travelDate, origin, destination, hasSearched]);
+      })
+      .finally(() => setRoutesLoading(false));
+  }, [travelDate, hasSearched]);
+
+  useEffect(() => {
+    setReviewsLoading(true);
+    gql<{ featuredReviews: Review[] }>(
+      `query { featuredReviews(limit: 6) { id reviewerName routeLabel rating comment createdAt } }`
+    )
+      .then((data) => setFeaturedReviews(data.featuredReviews))
+      .catch(() => setFeaturedReviews([]))
+      .finally(() => setReviewsLoading(false));
+  }, []);
 
   function swapLocations() {
     const o = origin;
@@ -191,55 +248,63 @@ export default function HomePage() {
     try {
       await navigator.clipboard.writeText(code);
       setCopiedPromoCode(code);
-      toast.success(`Đã sao chép mã ${code}`);
+      showToast.copied(`mã ${code}`);
       window.setTimeout(() => {
         setCopiedPromoCode((current) => (current === code ? null : current));
       }, 1800);
     } catch {
-      toast.error('Không thể sao chép mã khuyến mãi');
+      showToast.error('Không thể sao chép mã khuyến mãi');
     }
   }
 
-  return (
-    <div className="min-h-screen">
-      {/* Hero */}
-      <section className="relative min-h-[520px] overflow-hidden sm:min-h-[580px]">
-        <Image
-          src={getHeroImage()}
-          alt="Xe khách liên tỉnh Cappy Bus"
-          fill
-          priority
-          className="object-cover"
-          sizes="100vw"
-        />
-        <div className="hero-overlay absolute inset-0" />
+  const heroRef = useRef<HTMLElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: heroRef,
+    offset: ['start start', 'end start'],
+  });
+  const heroImageY = useTransform(scrollYProgress, [0, 1], ['0%', '15%']);
+  const heroContentY = useTransform(scrollYProgress, [0, 1], ['0%', '8%']);
 
-        <div className="relative z-10 mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6 sm:pb-20 sm:pt-14 lg:px-8">
+  return (
+    <div className="min-h-screen bg-surface">
+      {/* Hero */}
+      <section
+        ref={heroRef}
+        className="relative min-h-[480px] overflow-hidden sm:min-h-[650px] lg:min-h-[700px]"
+      >
+        <HeroCarousel parallaxY={heroImageY} />
+
+        <motion.div
+          style={{ y: heroContentY }}
+          className="relative z-10 mx-auto max-w-container px-4 pb-20 pt-12 sm:px-6 sm:pb-24 sm:pt-16 lg:px-8"
+        >
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
+            transition={{ duration: 0.7, ease: [0.4, 0, 0.2, 1] }}
             className="mx-auto max-w-3xl text-center"
           >
-            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-caption font-medium text-white/90 backdrop-blur-sm ring-1 ring-white/20">
-              <Sparkles className="h-3.5 w-3.5 text-accent" />
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur-md ring-1 ring-white/25">
+              <Sparkles className="h-4 w-4 text-accent" />
               Nền tảng đặt vé xe khách #1 Việt Nam
             </span>
-            <h1 className="mt-5 text-balance font-display text-display text-white">
+            <h1 className="mt-6 text-balance font-display text-display text-white">
               Đặt vé xe liên tỉnh
-              <span className="block text-accent">nhanh chóng & an tâm</span>
+              <span className="block bg-gradient-to-r from-white to-brand-200 bg-clip-text text-transparent">
+                nhanh chóng & an tâm
+              </span>
             </h1>
-            <p className="mt-4 text-balance text-body text-white/75 sm:text-lg">
+            <p className="mt-5 text-balance text-base text-white/80 sm:text-lg">
               So sánh giá từ hàng trăm nhà xe, chọn ghế trực quan và nhận vé điện tử ngay lập tức
             </p>
 
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-5">
               {TRUST_STATS.map(({ label, icon: Icon }) => (
                 <span
                   key={label}
-                  className="inline-flex items-center gap-1.5 text-caption text-white/70"
+                  className="inline-flex items-center gap-2 text-sm text-white/75"
                 >
-                  <Icon className="h-3.5 w-3.5 text-accent" />
+                  <Icon className="h-4 w-4 text-accent" />
                   {label}
                 </span>
               ))}
@@ -247,10 +312,10 @@ export default function HomePage() {
           </motion.div>
 
           <motion.div
-            initial={{ opacity: 0, y: 24 }}
+            initial={{ opacity: 0, y: 36 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.15 }}
-            className="mx-auto mt-10 max-w-5xl"
+            transition={{ duration: 0.7, delay: 0.15, ease: [0.4, 0, 0.2, 1] }}
+            className="mx-auto mt-12 max-w-5xl"
           >
             <TripSearchBox
               variant="hero"
@@ -259,7 +324,8 @@ export default function HomePage() {
               travelDate={travelDate}
               originSuggestions={originSuggestions}
               destSuggestions={destSuggestions}
-              catalogLocations={catalogLocations}
+              catalogLocations={originOptions}
+              destCatalogLocations={destOptions}
               loading={loading}
               onOriginChange={(v) => {
                 setOriginQuery(v);
@@ -307,7 +373,7 @@ export default function HomePage() {
               </div>
             )}
           </motion.div>
-        </div>
+        </motion.div>
       </section>
 
       {/* Search results */}
@@ -342,7 +408,16 @@ export default function HomePage() {
           </div>
 
           <div className="space-y-4">
-            {loading && Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
+            {loading && Array.from({ length: 3 }).map((_, i) => <SkeletonTripCard key={i} />)}
+            {!loading && !sortedTrips.length && (
+              <EmptyState
+                icon={Bus}
+                title="Không có chuyến xe"
+                description={searchError || 'Thử đổi ngày hoặc tuyến khác'}
+                actionLabel="Tìm lại"
+                onAction={() => setHasSearched(false)}
+              />
+            )}
             {!loading &&
               sortedTrips.map((trip, i) => (
                 <TripResultCard
@@ -370,115 +445,54 @@ export default function HomePage() {
       {/* Marketing sections */}
       {!hasSearched && (
         <div className="mesh-bg">
-          {/* Popular routes */}
+          {/* Thống kê website */}
+          <StatsSection />
+
+          {/* Tuyến phổ biến */}
           <section className="page-section page-container">
-            <div className="mb-8 flex items-end justify-between">
+            <div className="mb-10 flex items-end justify-between">
               <div>
                 <h2 className="section-heading">Tuyến phổ biến</h2>
                 <p className="section-subheading">Giá tốt nhất, cập nhật hàng ngày</p>
               </div>
-              <Link href="/trips" className="hidden text-caption font-medium text-brand hover:underline sm:block">
+              <Link href="/trips" className="hidden text-sm font-semibold text-brand hover:underline sm:block">
                 Xem tất cả
               </Link>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {popularRoutes.map((route) => (
-                <Link
-                  key={`${route.origin}-${route.destination}`}
-                  href={buildTripsSeoUrl(route.origin, route.destination, travelDate)}
-                  className="card-hover-lift group flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card"
-                >
-                  <div>
-                    <p className="font-semibold text-ink">
-                      {route.origin}{' '}
-                      <span className="text-brand">→</span> {route.destination}
-                    </p>
-                    <p className="mt-1 text-caption text-ink-muted">{formatDurationMinutes(route.durationMinutes)}</p>
-                    <p className="mt-2 text-subtitle font-bold text-brand">
-                      từ {route.minPrice.toLocaleString('vi-VN')}đ
-                    </p>
-                  </div>
-                  <ChevronRight className="h-5 w-5 text-ink-subtle transition-transform group-hover:translate-x-1 group-hover:text-brand" />
-                </Link>
-              ))}
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {routesLoading &&
+                Array.from({ length: 6 }).map((_, i) => <SkeletonPopularRoute key={i} />)}
+              {!routesLoading &&
+                popularRoutes.map((route, i) => (
+                  <PopularRouteCard
+                    key={`${route.origin}-${route.destination}`}
+                    route={route}
+                    travelDate={travelDate}
+                    index={i}
+                  />
+                ))}
             </div>
           </section>
 
-          {/* Featured operators */}
-          <section className="page-section page-container border-t border-slate-200/60">
-            <div className="mb-8">
-              <h2 className="section-heading">Nhà xe nổi bật</h2>
-              <p className="section-subheading">Đối tác uy tín trên Cappy Bus</p>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {FEATURED_OPERATORS.map((op) => (
-                <div
-                  key={op.name}
-                  className="card-hover-lift rounded-2xl border border-slate-200/80 bg-white p-5 shadow-card"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white">
-                      {op.name.charAt(0)}
-                    </div>
-                    <span className="rounded-full bg-accent-light px-2.5 py-0.5 text-micro font-semibold text-accent-dark">
-                      {op.badge}
-                    </span>
-                  </div>
-                  <h3 className="mt-4 font-semibold text-ink">{op.name}</h3>
-                  <div className="mt-2 flex items-center gap-2">
-                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                    <span className="text-caption font-medium text-ink">{op.rating}</span>
-                    <span className="text-micro text-ink-subtle">· {op.trips}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+          {/* Nhà xe nổi bật */}
+          <FeaturedOperatorsSection travelDate={travelDate} />
 
-          {/* Destinations */}
-          <section className="page-section page-container border-t border-slate-200/60">
-            <div className="mb-8">
-              <h2 className="section-heading">Điểm đến nổi bật</h2>
-              <p className="section-subheading">Khám phá Việt Nam cùng Cappy Bus</p>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {FEATURED_DESTINATIONS.map((dest) => (
-                <Link
-                  key={dest.city}
-                  href={buildTripsSeoUrl('TP.HCM', dest.city, travelDate)}
-                  className="card-hover-lift group relative overflow-hidden rounded-2xl shadow-card"
-                >
-                  <div className="relative h-48">
-                    <Image
-                      src={getDestinationImage(dest.city)}
-                      alt={dest.city}
-                      fill
-                      className="object-cover transition-transform duration-500 group-hover:scale-105"
-                      sizes="(max-width: 768px) 100vw, 33vw"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                    <div className="absolute bottom-4 left-4 right-4">
-                      <h3 className="text-xl font-bold text-white">{dest.city}</h3>
-                      <p className="mt-0.5 text-caption text-white/75">{dest.tagline}</p>
-                      <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-0.5 text-micro font-medium text-white backdrop-blur-sm">
-                        <Tag className="h-3 w-3" />
-                        {dest.deals} ưu đãi
-                      </p>
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </section>
+          {/* Tại sao chọn Cappy Bus */}
+          <WhyChooseUsSection />
+
+          {/* Điểm đến nổi bật */}
+          <FeaturedDestinationsSection travelDate={travelDate} />
 
           {/* Promotions */}
-          <section className="page-section page-container border-t border-slate-200/60 bg-surface-sunken/40">
-            <div className="mb-8">
+          <section className="page-section page-container">
+            <div className="mb-10">
               <h2 className="section-heading">Ưu đãi hiện có</h2>
-              <p className="section-subheading">Voucher đang chạy thật, sẵn sàng áp dụng cho chuyến tiếp theo của bạn</p>
+              <p className="section-subheading">
+                Voucher đang chạy thật, sẵn sàng áp dụng cho chuyến tiếp theo của bạn
+              </p>
             </div>
             <div className="-mx-4 overflow-x-auto px-4 pb-3 [scrollbar-width:none] sm:mx-0 sm:px-0 md:overflow-visible">
-              <div className="flex gap-4 md:grid md:grid-cols-3 md:gap-5">
+              <div className="flex gap-5 md:grid md:grid-cols-3">
                 {PROMOTIONS.map((promo, index) => (
                   <PromoVoucherCard
                     key={promo.code}
@@ -492,40 +506,22 @@ export default function HomePage() {
             </div>
           </section>
 
-          {/* Testimonials */}
-          <section className="page-section page-container border-t border-slate-200/60 pb-20">
-            <div className="mb-8 text-center">
+          {/* Khách hàng nói gì */}
+          <section className="page-section page-container">
+            <div className="mb-10 text-center">
               <h2 className="section-heading">Khách hàng nói gì</h2>
               <p className="section-subheading">Hàng nghìn lượt đặt vé mỗi ngày</p>
             </div>
-            <div className="grid gap-6 md:grid-cols-3">
-              {TESTIMONIALS.map((t) => (
-                <div
-                  key={t.name}
-                  className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-card"
-                >
-                  <Quote className="h-8 w-8 text-brand/20" />
-                  <p className="mt-4 text-body text-ink-muted">&ldquo;{t.text}&rdquo;</p>
-                  <div className="mt-5 flex items-center gap-3 border-t border-slate-100 pt-5">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-50 text-sm font-bold text-brand">
-                      {t.avatar}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-ink">{t.name}</p>
-                      <div className="flex items-center gap-2">
-                        <div className="flex">
-                          {Array.from({ length: t.rating }).map((_, i) => (
-                            <Star key={i} className="h-3 w-3 fill-amber-400 text-amber-400" />
-                          ))}
-                        </div>
-                        <span className="text-micro text-ink-subtle">{t.route}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ReviewsSection reviews={displayReviews} loading={reviewsLoading} />
           </section>
+
+          {/* FAQ */}
+          <div id="faq">
+            <FAQSection />
+          </div>
+
+          {/* Tải app */}
+          <AppDownloadSection className="pb-28" />
         </div>
       )}
 

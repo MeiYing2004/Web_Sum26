@@ -48,10 +48,10 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const pageTitle = PAGE_TITLES[pathname] ?? 'Dashboard';
 
   return (
-    <div className="min-h-[calc(100vh-76px)] bg-surface-sunken">
-      <div className="flex min-h-[calc(100vh-76px)]">
+    <>
+      <div className="fixed inset-x-0 top-[76px] z-10 flex h-[calc(100vh-76px)] overflow-hidden bg-surface-sunken">
         <aside
-          className={`fixed left-0 z-40 flex w-60 flex-col border-r border-slate-200 bg-white transition-transform lg:static lg:min-h-[calc(100vh-76px)] lg:translate-x-0 top-[76px] h-[calc(100vh-76px)] ${
+          className={`fixed left-0 z-40 flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white transition-transform top-[76px] h-[calc(100vh-76px)] lg:relative lg:top-0 lg:z-auto lg:h-full lg:translate-x-0 ${
             mobileOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
@@ -128,8 +128,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           />
         ) : null}
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 lg:px-6">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="z-20 flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3 lg:px-6">
             <div className="flex items-center gap-2.5">
               <button
                 type="button"
@@ -152,9 +152,10 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             </Link>
           </header>
 
-          <main className="flex-1 px-4 py-5 lg:px-6 lg:py-6">{children}</main>
+          <main className="min-h-0 flex-1 overflow-y-auto px-4 py-5 lg:px-6 lg:py-6">{children}</main>
         </div>
       </div>
-    </div>
+      <div className="h-[calc(100vh-76px)]" aria-hidden="true" />
+    </>
   );
 }

@@ -8,6 +8,7 @@ service SeatInventoryService {
   rpc GetSeatMap(GetSeatMapRequest) returns (GetSeatMapResponse);
   rpc HoldSeats(HoldSeatsRequest) returns (HoldSeatsResponse);
   rpc ReleaseSeats(ReleaseSeatsRequest) returns (ReleaseSeatsResponse);
+  rpc ValidateHold(ValidateHoldRequest) returns (ValidateHoldResponse);
   rpc ConfirmSeats(ConfirmSeatsRequest) returns (ConfirmSeatsResponse);
   rpc BlockSeats(BlockSeatsRequest) returns (BlockSeatsResponse);
   rpc UnbookSeats(UnbookSeatsRequest) returns (UnbookSeatsResponse);
@@ -63,6 +64,17 @@ message ReleaseSeatsRequest {
 
 message ReleaseSeatsResponse {
   bool success = 1;
+}
+
+message ValidateHoldRequest {
+  string trip_id = 1;
+  string hold_token = 2;
+  repeated string seat_ids = 3;
+}
+
+message ValidateHoldResponse {
+  bool valid = 1;
+  string message = 2;
 }
 
 message ConfirmSeatsRequest {

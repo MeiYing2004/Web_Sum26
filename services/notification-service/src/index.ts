@@ -10,8 +10,12 @@ async function checkRabbit() {
 }
 
 async function handleEmailSend(data: Record<string, unknown>) {
-  const email = data.guestEmail as string;
+  const email = String(data.guestEmail ?? '').trim();
   const bookingCode = data.bookingCode as string;
+  if (!email) {
+    console.log(`[EMAIL SKIP] Không có email — booking ${bookingCode}`);
+    return;
+  }
   console.log('='.repeat(60));
   console.log('[EMAIL MOCK]');
   console.log(`To: ${email}`);

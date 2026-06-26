@@ -14,6 +14,7 @@ export interface ModalProps {
   children: ReactNode;
   size?: 'sm' | 'md' | 'lg';
   className?: string;
+  closeOnOverlayClick?: boolean;
 }
 
 const sizeClasses = {
@@ -30,13 +31,14 @@ export function Modal({
   children,
   size = 'md',
   className,
+  closeOnOverlayClick = true,
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && closeOnOverlayClick) onClose();
     };
     document.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
@@ -44,7 +46,7 @@ export function Modal({
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = '';
     };
-  }, [open, onClose]);
+  }, [open, onClose, closeOnOverlayClick]);
 
   return (
     <AnimatePresence>
@@ -57,7 +59,7 @@ export function Modal({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             className="absolute inset-0 bg-ink/40 backdrop-blur-sm"
-            onClick={onClose}
+            onClick={closeOnOverlayClick ? onClose : undefined}
             aria-hidden
           />
           <motion.div

@@ -38,7 +38,7 @@ export function LocationField({
     const trimmed = value.trim();
     if (trimmed) return suggestions;
     if (openedByChevron && isOpen) {
-      return catalogLocations.slice(0, 10).map((name) => ({ name }));
+      return catalogLocations.map((name) => ({ name }));
     }
     return [];
   }, [value, suggestions, catalogLocations, isOpen, openedByChevron]);
@@ -134,7 +134,7 @@ export function LocationField({
         <div
           id={listId}
           role="listbox"
-          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-52 overflow-auto rounded-xl border border-slate-200/80 bg-white p-1.5 shadow-overlay"
+          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-auto rounded-xl border border-slate-200/80 bg-white p-1.5 shadow-overlay"
         >
           {displaySuggestions.map((s) => (
             <button

@@ -18,22 +18,23 @@ const paymentServiceImpl = {
     callback: grpc.sendUnaryData<unknown>
   ) => {
     try {
-      const { booking_id, booking_code, amount, simulate_success, idempotency_key } = call.request;
+      const { booking_id, booking_code, amount, idempotency_key } = call.request;
       const idemKey = idempotency_key || `pay:${booking_id}`;
 
       const existingByIdem = idempotency_key
         ? await prisma.payment.findUnique({ where: { idempotencyKey: idemKey } })
         : null;
-      if (existingByIdem) {
+      if (existingByIdem?.status === PAYMENT_STATUS.SUCCESS) {
         return callback(null, {
-          success: existingByIdem.status === PAYMENT_STATUS.SUCCESS,
-          status: existingByIdem.status,
+          success: true,
+          status: PAYMENT_STATUS.SUCCESS,
           payment_id: existingByIdem.id,
           message: 'Idempotent replay — payment đã xử lý',
         });
       }
 
-      const existing = await prisma.payment.findUnique({ where: { bookingId: booking_id } });
+      const existing =
+        existingByIdem || (await prisma.payment.findUnique({ where: { bookingId: booking_id } }));
       if (existing?.status === PAYMENT_STATUS.SUCCESS) {
         return callback(null, {
           success: true,
@@ -43,7 +44,20 @@ const paymentServiceImpl = {
         });
       }
 
-      const finalStatus = simulate_success ? PAYMENT_STATUS.SUCCESS : PAYMENT_STATUS.FAILED;
+      const allowSimulate = process.env.ALLOW_SIMULATE_PAYMENT === 'true';
+      // Dev simulate mode: always succeed when enabled (gateway used to send simulate_success=false)
+      const effectiveSimulate = allowSimulate;
+
+      if (!allowSimulate) {
+        return callback(null, {
+          success: false,
+          status: PAYMENT_STATUS.FAILED,
+          payment_id: '',
+          message: 'Cổng thanh toán chưa được cấu hình',
+        });
+      }
+
+      const finalStatus = effectiveSimulate ? PAYMENT_STATUS.SUCCESS : PAYMENT_STATUS.FAILED;
 
       const payment = existing
         ? await prisma.payment.update({
@@ -65,14 +79,14 @@ const paymentServiceImpl = {
         data: { status: finalStatus },
       });
 
-      await publishPaymentEvent(KAFKA_BROKERS, simulate_success ? 'payment.success' : 'payment.failed', {
+      await publishPaymentEvent(KAFKA_BROKERS, effectiveSimulate ? 'payment.success' : 'payment.failed', {
         paymentId: updated.id,
         bookingId: booking_id,
         amount,
         idempotencyKey: idemKey,
       });
 
-      if (simulate_success) {
+      if (effectiveSimulate) {
         logEvent(logger, 'payment.success', {
           requestId: getGrpcRequestId(call),
           bookingId: booking_id,
@@ -82,10 +96,10 @@ const paymentServiceImpl = {
       }
 
       callback(null, {
-        success: simulate_success,
+        success: effectiveSimulate,
         status: finalStatus,
         payment_id: updated.id,
-        message: simulate_success ? 'Thanh toán mô phỏng thành công' : 'Thanh toán mô phỏng thất bại',
+        message: effectiveSimulate ? 'Thanh toán mô phỏng thành công' : 'Thanh toán mô phỏng thất bại',
       });
     } catch (err) {
       callback(err as grpc.ServiceError, null);

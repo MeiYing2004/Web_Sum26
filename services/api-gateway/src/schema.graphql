@@ -64,6 +64,11 @@ type TripDetail {
   busPlate: String!
   totalSeats: Int!
   seatLayoutJson: String
+  status: TripStatus!
+  bookable: Boolean!
+  availabilityStatus: String!
+  availabilityLabel: String!
+  serverNow: String!
 }
 
 type SeatInfo {
@@ -100,7 +105,7 @@ type Passenger {
 input PassengerInput {
   fullName: String!
   phone: String!
-  email: String!
+  email: String
   idNumber: String
   seatId: ID!
 }
@@ -119,6 +124,12 @@ type BookingDetail {
   status: BookingStatus!
   tripId: ID!
   totalAmount: Float!
+  ticketSubtotal: Float
+  serviceFee: Float
+  discountAmount: Float
+  voucherCode: String
+  voucherName: String
+  finalAmount: Float
   passengers: [Passenger!]!
   createdAt: String!
   routeName: String
@@ -134,11 +145,65 @@ type BookingDetail {
   userId: ID
 }
 
+type VoucherValidation {
+  valid: Boolean!
+  message: String!
+  discountAmount: Float!
+  ticketSubtotal: Float!
+  serviceFee: Float!
+  finalAmount: Float!
+  voucherCode: String
+  voucherName: String
+}
+
+type AvailableVoucher {
+  code: String!
+  name: String!
+  description: String!
+  discountLabel: String!
+  minOrderValue: Float!
+  maxDiscount: Float
+  validUntil: String!
+}
+
 type PaymentResult {
   success: Boolean!
   message: String!
   bookingId: ID
   bookingCode: String
+}
+
+type CheckInPassenger {
+  fullName: String!
+  seatId: String!
+}
+
+type CheckInPreview {
+  found: Boolean!
+  canCheckIn: Boolean!
+  invalidReason: String
+  ticketCode: String
+  bookingCode: String
+  status: String
+  buyerName: String
+  buyerPhone: String
+  buyerEmail: String
+  passengers: [CheckInPassenger!]!
+  seatCount: Int!
+  routeName: String
+  operatorName: String
+  busPlate: String
+  departureTime: String
+  pickupPoint: String
+  dropoffPoint: String
+  ticketSubtotal: Float
+  serviceFee: Float
+  voucherCode: String
+  voucherName: String
+  discountAmount: Float
+  finalAmount: Float
+  checkedInAt: String
+  checkedInByUserId: String
 }
 
 type ETicket {
@@ -160,10 +225,40 @@ type ETicket {
   departureTime: String!
   busPlate: String!
   totalAmount: Float!
+  ticketSubtotal: Float
+  serviceFee: Float
+  discountAmount: Float
+  voucherCode: String
+  finalAmount: Float
   paymentStatus: String!
   bookingStatus: String!
   qrCode: String!
   createdAt: String!
+}
+
+type Review {
+  id: ID!
+  bookingId: ID!
+  userId: ID!
+  tripId: ID!
+  reviewerName: String!
+  routeName: String!
+  routeLabel: String!
+  rating: Int!
+  comment: String!
+  createdAt: String!
+}
+
+type ReviewResult {
+  success: Boolean!
+  message: String!
+  review: Review
+}
+
+type TripRatingSummary {
+  tripId: ID!
+  averageRating: Float!
+  reviewCount: Int!
 }
 
 type AuthResult {
@@ -212,8 +307,16 @@ type RouteCatalogRoute {
   nextDepartureTime: String!
 }
 
+type RoutePair {
+  origin: String!
+  destination: String!
+}
+
 type RouteCatalog {
   locations: [String!]!
+  origins: [String!]!
+  destinations: [String!]!
+  routePairs: [RoutePair!]!
   routes: [RouteCatalogRoute!]!
 }
 
@@ -221,6 +324,38 @@ type ConversionRate {
   totalSearches: Int!
   totalBookings: Int!
   conversionRate: Float!
+}
+
+"""Thống kê công khai trên trang chủ — dữ liệu thật từ database"""
+type PlatformStats {
+  tripsToday: Int!
+  customers: Int!
+  operators: Int!
+  provinces: Int!
+  satisfactionPercent: Float
+  hasSatisfactionData: Boolean!
+}
+
+"""Nhà xe nổi bật — dữ liệu thật từ database"""
+type FeaturedOperator {
+  id: ID!
+  name: String!
+  tripCountToday: Int!
+  routes: [String!]!
+  priceFrom: Float
+  badge: String!
+  rating: Float
+  reviewCount: Int!
+  satisfactionPercent: Float
+}
+
+"""Điểm đến nổi bật — số tuyến & giá từ database"""
+type FeaturedDestination {
+  city: String!
+  slug: String!
+  tagline: String!
+  routeCount: Int!
+  priceFrom: Float
 }
 
 type AdminRankItem {
@@ -343,6 +478,8 @@ type AdminTrip {
   arrivalTime: String!
   price: Float!
   status: TripStatus!
+  displayStatus: String!
+  displayStatusLabel: String!
   pickupPoint: String!
   dropoffPoint: String!
   cancellationPolicy: String!
@@ -391,10 +528,10 @@ type Query {
   tripDetail(tripId: ID!): TripDetail
   seatMap(tripId: ID!): SeatMap!
   booking(id: ID!): BookingDetail
-  bookingByCode(bookingCode: String!, email: String): BookingDetail
+  bookingByCode(bookingCode: String!, email: String, phone: String): BookingDetail
   myBookings: [BookingDetail!]!
   myTickets(search: String, filter: String, email: String): [ETicket!]!
-  ticketsForBooking(bookingId: ID!, email: String): [ETicket!]!
+  ticketsForBooking(bookingId: ID!, email: String, phone: String): [ETicket!]!
   ticket(id: ID!): ETicket
   searchTickets(query: String!, email: String, filter: String): [ETicket!]!
   suggestNearestDate(origin: String!, destination: String!, travelDate: String!): String
@@ -402,7 +539,17 @@ type Query {
   revenueSummary(fromDate: String, toDate: String): RevenueSummary!
   popularRoutes(limit: Int): [RouteStat!]!
   conversionRate: ConversionRate!
+  platformStats: PlatformStats!
+  featuredOperators(limit: Int): [FeaturedOperator!]!
+  featuredDestinations: [FeaturedDestination!]!
   adminDashboard: AdminDashboard!
+  featuredReviews(limit: Int): [Review!]!
+  reviewByBooking(bookingId: ID!): Review
+  myReviews: [Review!]!
+  tripReviews(tripId: ID!, limit: Int): [Review!]!
+  tripRatingSummary(tripId: ID!): TripRatingSummary!
+  validateVoucher(bookingId: ID!, code: String!, guestEmail: String): VoucherValidation!
+  availableVouchers(bookingId: ID!): [AvailableVoucher!]!
 
   # Admin read — ADMIN + STAFF
   adminRoutes(search: String, page: Int, pageSize: Int): AdminRouteList!
@@ -420,6 +567,7 @@ type Query {
   ): AdminTripList!
   adminOperators: [AdminOperator!]!
   adminBookingsByTrip(tripId: ID!, search: String, page: Int, pageSize: Int): AdminBookingList!
+  adminCheckInPreview(ref: String!): CheckInPreview!
   adminEventLogs(limit: Int): [AdminEventLog!]!
 }
 
@@ -432,9 +580,12 @@ type Mutation {
     tripId: ID!
     holdToken: String!
     passengers: [PassengerInput!]!
-    guestEmail: String!
+    guestEmail: String
   ): BookingResult!
-  processPayment(bookingId: ID!, simulateSuccess: Boolean!): PaymentResult!
+  processPayment(bookingId: ID!, guestEmail: String, guestPhone: String, voucherCode: String): PaymentResult!
+  applyVoucher(bookingId: ID!, code: String!, guestEmail: String, guestPhone: String): VoucherValidation!
+  removeVoucher(bookingId: ID!, guestEmail: String, guestPhone: String): VoucherValidation!
+  submitReview(bookingId: ID!, rating: Int!, comment: String!, reviewerName: String): ReviewResult!
   cancelBooking(bookingId: ID!): PaymentResult!
   checkIn(bookingCode: String!, ticketId: String): PaymentResult!
   blockSeats(tripId: ID!, seatIds: [ID!]!, blocked: Boolean!): Boolean!

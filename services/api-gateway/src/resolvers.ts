@@ -2,6 +2,7 @@ import { PubSub } from 'graphql-subscriptions';
 import {
   sanitizeString,
   sanitizeEmail,
+  sanitizeOptionalEmail,
   sanitizeBookingCode,
   sanitizeLocation,
   sanitizeDate,
@@ -12,8 +13,12 @@ import {
   formatDateVN,
   departureDateVN,
   filterByDepartureDate,
+  tripBookingBlockedMessage,
+  TRIP_STATUS,
   USER_ROLES,
   normalizeRole,
+  normalizePhoneDigits,
+  todayVN,
 } from '@bus/shared';
 import { createContext, requireRole, enforceLookupRateLimit, redis, type GatewayContext } from './context';
 import { mapAuthError } from './auth-errors';
@@ -42,6 +47,46 @@ function mapSortBy(sort?: unknown): string {
 
 function promisify<T>(fn: (cb: (err: Error | null, res: T) => void) => void): Promise<T> {
   return new Promise((resolve, reject) => fn((err, res) => (err ? reject(err) : resolve(res))));
+}
+
+/** Lấy thống kê trip — ưu tiên RPC mới, fallback RPC cũ nếu Docker chưa rebuild */
+async function fetchPlatformTripStats(ctx: GatewayContext) {
+  try {
+    return await promisify<{ trips_today: number; operator_count: number; province_count: number }>((cb) =>
+      ctx.tripClient.GetPlatformTripStats({}, cb)
+    );
+  } catch (err) {
+    logEvent(gatewayLogger, 'platformStats.trip_fallback', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    const [catalog, operators] = await Promise.all([
+      promisify<{ locations?: string[] }>((cb) =>
+        ctx.tripClient.GetRouteCatalog({ travel_date: todayVN(), limit: 1 }, cb)
+      ),
+      promisify<{ operators?: Array<{ id: string }> }>((cb) => ctx.tripClient.GetOperators({}, cb)),
+    ]);
+    const tripsRes = await promisify<{ count: number }>((cb) => ctx.tripClient.CountActiveTrips({}, cb));
+    return {
+      trips_today: tripsRes.count ?? 0,
+      operator_count: operators.operators?.length ?? 0,
+      province_count: catalog.locations?.length ?? 0,
+    };
+  }
+}
+
+async function fetchReviewSatisfactionStats(ctx: GatewayContext) {
+  try {
+    return await promisify<{
+      total_reviews: number;
+      satisfied_reviews: number;
+      satisfaction_percent?: number;
+    }>((cb) => ctx.bookingClient.GetReviewSatisfactionStats({}, cb));
+  } catch (err) {
+    logEvent(gatewayLogger, 'platformStats.review_fallback', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { total_reviews: 0, satisfied_reviews: 0, satisfaction_percent: undefined };
+  }
 }
 
 function daysAgo(n: number): Date {
@@ -77,11 +122,20 @@ async function assertTripBookable(
     return { ok: false, message: 'Không tìm thấy chuyến xe' };
   }
   const travelDate = departureDateVN(departureTime);
-  const seatsRaw = t.available_seats ?? t.availableSeats;
+  const seatsRaw = t.available_seats ?? t.availableSeats ?? t.total_seats ?? t.totalSeats;
   const seats = seatsRaw !== undefined && seatsRaw !== null ? Number(seatsRaw) : undefined;
-  const av = getTripAvailability(travelDate, departureTime, new Date(), seats);
+  const dbStatus = String(t.status ?? t.effective_status ?? TRIP_STATUS.ACTIVE);
+  const av = getTripAvailability(travelDate, departureTime, new Date(), seats, {
+    arrivalTimeIso: String(t.arrival_time ?? ''),
+    dbStatus,
+  });
   if (!av.bookable) {
-    return { ok: false, message: av.availabilityLabel || 'Chuyến không còn khả dụng' };
+    const blocked = tripBookingBlockedMessage(av.availabilityStatus);
+    const message =
+      blocked !== 'Chuyến không còn khả dụng'
+        ? blocked
+        : av.availabilityLabel || 'Chuyến không còn khả dụng';
+    return { ok: false, message };
   }
   return { ok: true };
 }
@@ -183,21 +237,22 @@ export const resolvers = {
 
     bookingByCode: async (
       _: unknown,
-      { bookingCode, email }: { bookingCode: string; email?: string },
+      { bookingCode, email, phone }: { bookingCode: string; email?: string; phone?: string },
       ctx: GatewayContext
     ) => {
       await enforceLookupRateLimit(ctx);
       const code = sanitizeBookingCode(bookingCode);
-      const em = email ? sanitizeEmail(email) : undefined;
-      if (!ctx.user && !em) {
-        throw new Error('Vui lòng cung cấp email để tra cứu vé');
+      const em = email?.trim() ? sanitizeEmail(email) : undefined;
+      const ph = phone?.trim() ? normalizePhoneDigits(phone) : undefined;
+      if (!ctx.user && !em && !ph) {
+        throw new Error('Vui lòng cung cấp email hoặc số điện thoại để tra cứu vé');
       }
       try {
         const b = await promisify<Record<string, unknown>>((cb) =>
-          ctx.bookingClient.GetBookingByCode({ booking_code: code, email: em }, cb)
+          ctx.bookingClient.GetBookingByCode({ booking_code: code, email: em, phone: ph }, cb)
         );
         if (!b?.id) return null;
-        assertBookingReadAccess(b, ctx, em);
+        assertBookingReadAccess(b, ctx, em, ph);
         return mapBooking(b);
       } catch {
         return null;
@@ -214,43 +269,34 @@ export const resolvers = {
 
     myTickets: async (
       _: unknown,
-      { search, filter, email }: { search?: string; filter?: string; email?: string },
+      { search, filter }: { search?: string; filter?: string },
       ctx: GatewayContext
     ) => {
       if (!ctx.user) throw new Error('Unauthorized');
-      const userEmail = email ? sanitizeEmail(email) : undefined;
 
-      if (!userEmail) {
-        try {
-          const ticketRes = await promisify<{ tickets: Array<Record<string, unknown>> }>((cb) =>
-            ctx.ticketClient.ListForUser(
-              {
-                user_id: ctx.user!.userId,
-                search: search ? sanitizeString(search, 80) : '',
-                filter: filter ? sanitizeString(filter, 20) : '',
-              },
-              cb
-            )
-          );
-          if (ticketRes.tickets?.length) {
-            return ticketRes.tickets.map(mapETicket);
-          }
-        } catch (err) {
-          logEvent(gatewayLogger, 'myTickets.ticketServiceFallback', {
-            requestId: ctx.requestId,
-            error: String(err),
-          });
+      try {
+        const ticketRes = await promisify<{ tickets: Array<Record<string, unknown>> }>((cb) =>
+          ctx.ticketClient.ListForUser(
+            {
+              user_id: ctx.user!.userId,
+              search: search ? sanitizeString(search, 80) : '',
+              filter: filter ? sanitizeString(filter, 20) : '',
+            },
+            cb
+          )
+        );
+        if (ticketRes.tickets?.length) {
+          return ticketRes.tickets.map(mapETicket);
         }
+      } catch (err) {
+        logEvent(gatewayLogger, 'myTickets.ticketServiceFallback', {
+          requestId: ctx.requestId,
+          error: String(err),
+        });
       }
 
       const res = await promisify<{ bookings: Array<Record<string, unknown>> }>((cb) =>
-        ctx.bookingClient.ListUserBookings(
-          {
-            user_id: ctx.user!.userId,
-            email: userEmail,
-          },
-          cb
-        )
+        ctx.bookingClient.ListUserBookings({ user_id: ctx.user!.userId }, cb)
       );
       let bookings = res.bookings;
       if (search) {
@@ -265,7 +311,7 @@ export const resolvers = {
 
     ticketsForBooking: async (
       _: unknown,
-      { bookingId, email }: { bookingId: string; email?: string },
+      { bookingId, email, phone }: { bookingId: string; email?: string; phone?: string },
       ctx: GatewayContext
     ) => {
       const b = await promisify<Record<string, unknown>>((cb) =>
@@ -273,15 +319,33 @@ export const resolvers = {
       );
       if (!b?.id) return [];
 
+      const em = email?.trim() ? sanitizeEmail(email) : undefined;
+      const ph = phone?.trim() ? normalizePhoneDigits(phone) : undefined;
+
       if (ctx.user) {
         const ownerId = String(b.user_id ?? '').trim();
-        if (ownerId && ownerId !== ctx.user.userId) {
-          throw new Error('Forbidden — bạn không có quyền xem vé này');
+        if (ownerId) {
+          if (ownerId !== ctx.user.userId) {
+            throw new Error('Forbidden — bạn không có quyền xem vé này');
+          }
+        } else if (em) {
+          assertGuestEmailAccess(b, em);
+        } else if (ph) {
+          assertGuestPhoneAccess(b, ph);
+        } else {
+          const storedEmail = String(b.guest_email ?? '').trim();
+          throw new Error(
+            storedEmail
+              ? 'Forbidden — vui lòng cung cấp email đặt vé để xác minh'
+              : 'Forbidden — vui lòng cung cấp số điện thoại đặt vé để xác minh'
+          );
         }
-      } else if (email) {
-        assertGuestEmailAccess(b, sanitizeEmail(email));
+      } else if (em) {
+        assertGuestEmailAccess(b, em);
+      } else if (ph) {
+        assertGuestPhoneAccess(b, ph);
       } else {
-        throw new Error('Unauthorized — vui lòng đăng nhập hoặc cung cấp email đặt vé');
+        throw new Error('Unauthorized — vui lòng đăng nhập hoặc cung cấp email/số điện thoại đặt vé');
       }
 
       try {
@@ -293,6 +357,11 @@ export const resolvers = {
           return ticketRes.tickets.map((t) =>
             mapETicket({
               ...t,
+              ticket_subtotal: b.ticket_subtotal,
+              service_fee: b.service_fee,
+              discount_amount: b.discount_amount,
+              voucher_code: b.voucher_code,
+              final_amount: b.final_amount ?? b.total_amount,
               booking_status: bookingStatus || t.booking_status,
             })
           );
@@ -328,11 +397,15 @@ export const resolvers = {
       ctx: GatewayContext
     ) => {
       await enforceLookupRateLimit(ctx);
+      const em = email ? sanitizeEmail(email) : undefined;
+      if (!ctx.user && !em) {
+        throw new Error('Vui lòng cung cấp email để tra cứu vé');
+      }
       const res = await promisify<{ tickets: Array<Record<string, unknown>> }>((cb) =>
         ctx.ticketClient.Search(
           {
             query: sanitizeString(query, 80),
-            email: email ? sanitizeEmail(email) : '',
+            email: em || '',
             filter: filter ? sanitizeString(filter, 20) : '',
           },
           cb
@@ -363,6 +436,9 @@ export const resolvers = {
       const date = sanitizeDate(travelDate);
       const res = await promisify<{
         locations: string[];
+        origins: string[];
+        destinations: string[];
+        route_pairs: Array<{ origin: string; destination: string }>;
         routes: Array<{
           origin: string;
           destination: string;
@@ -374,6 +450,12 @@ export const resolvers = {
       }>((cb) => ctx.tripClient.GetRouteCatalog({ travel_date: date, limit: limit || 6 }, cb));
       return {
         locations: res.locations || [],
+        origins: res.origins || [],
+        destinations: res.destinations || [],
+        routePairs: (res.route_pairs || []).map((p) => ({
+          origin: p.origin,
+          destination: p.destination,
+        })),
         routes: (res.routes || []).map((r) => ({
           origin: r.origin,
           destination: r.destination,
@@ -405,6 +487,7 @@ export const resolvers = {
     },
 
     popularRoutes: async (_: unknown, { limit }: { limit?: number }, ctx: GatewayContext) => {
+      requireRole(ctx, [USER_ROLES.ADMIN, USER_ROLES.EMPLOYEE]);
       const res = await promisify<{ routes: Array<Record<string, unknown>> }>((cb) =>
         ctx.analyticsClient.GetPopularRoutes({ limit: limit || 10 }, cb)
       );
@@ -416,12 +499,169 @@ export const resolvers = {
     },
 
     conversionRate: async (_: unknown, __: unknown, ctx: GatewayContext) => {
+      requireRole(ctx, [USER_ROLES.ADMIN, USER_ROLES.EMPLOYEE]);
       const res = await promisify<Record<string, number>>((cb) => ctx.analyticsClient.GetConversionRate({}, cb));
       return {
         totalSearches: res.total_searches,
         totalBookings: res.total_bookings,
         conversionRate: res.conversion_rate,
       };
+    },
+
+    featuredReviews: async (_: unknown, { limit }: { limit?: number }, ctx: GatewayContext) => {
+      const res = await promisify<{ reviews: Array<Record<string, unknown>> }>((cb) =>
+        ctx.bookingClient.ListFeaturedReviews({ limit: limit || 6 }, cb)
+      );
+      return (res.reviews || []).map(mapReview).filter((r) => r.id);
+    },
+
+    platformStats: async (_: unknown, __: unknown, ctx: GatewayContext) => {
+      const [tripStats, customerRes, satisfactionRes] = await Promise.all([
+        fetchPlatformTripStats(ctx),
+        promisify<{ count: number }>((cb) => ctx.authClient.CountCustomers({}, cb)),
+        fetchReviewSatisfactionStats(ctx),
+      ]);
+
+      const hasSatisfactionData =
+        (satisfactionRes.total_reviews ?? 0) > 0 && satisfactionRes.satisfaction_percent != null;
+
+      return {
+        tripsToday: tripStats.trips_today ?? 0,
+        customers: customerRes.count ?? 0,
+        operators: tripStats.operator_count ?? 0,
+        provinces: tripStats.province_count ?? 0,
+        satisfactionPercent: hasSatisfactionData ? satisfactionRes.satisfaction_percent : null,
+        hasSatisfactionData,
+      };
+    },
+
+    featuredOperators: async (_: unknown, { limit }: { limit?: number }, ctx: GatewayContext) => {
+      const [tripRes, reviewRes] = await Promise.all([
+        promisify<{ operators: Array<Record<string, unknown>> }>((cb) =>
+          ctx.tripClient.ListFeaturedOperators({ limit: limit || 12 }, cb)
+        ).catch(() => ({ operators: [] })),
+        promisify<{ summaries: Array<Record<string, unknown>> }>((cb) =>
+          ctx.bookingClient.GetOperatorReviewSummaries({}, cb)
+        ).catch(() => ({ summaries: [] })),
+      ]);
+
+      const reviewByName = new Map(
+        (reviewRes.summaries || []).map((s) => [String(s.operator_name ?? ''), s])
+      );
+
+      return (tripRes.operators || []).map((op) => {
+        const name = String(op.name ?? '');
+        const review = reviewByName.get(name);
+        const reviewCount = Number(review?.review_count ?? 0);
+        return {
+          id: String(op.id ?? ''),
+          name,
+          tripCountToday: Number(op.trip_count_today ?? 0),
+          routes: (op.routes as string[]) || [],
+          priceFrom: op.price_from != null ? Number(op.price_from) : null,
+          badge: String(op.badge ?? 'Đối tác'),
+          rating: reviewCount > 0 && review?.average_rating != null ? Number(review.average_rating) : null,
+          reviewCount,
+          satisfactionPercent:
+            reviewCount > 0 && review?.satisfaction_percent != null
+              ? Number(review.satisfaction_percent)
+              : null,
+        };
+      });
+    },
+
+    featuredDestinations: async (_: unknown, __: unknown, ctx: GatewayContext) => {
+      const tripRes = await promisify<{ destinations: Array<Record<string, unknown>> }>((cb) =>
+        ctx.tripClient.ListFeaturedDestinations({}, cb)
+      ).catch(() => ({ destinations: [] }));
+
+      return (tripRes.destinations || []).map((d) => ({
+        city: String(d.city ?? ''),
+        slug: String(d.slug ?? ''),
+        tagline: String(d.tagline ?? ''),
+        routeCount: Number(d.route_count ?? 0),
+        priceFrom: d.price_from != null ? Number(d.price_from) : null,
+      }));
+    },
+
+    reviewByBooking: async (_: unknown, { bookingId }: { bookingId: string }, ctx: GatewayContext) => {
+      if (!ctx.user) throw new Error('Unauthorized');
+      const res = await promisify<Record<string, unknown>>((cb) =>
+        ctx.bookingClient.GetReviewByBooking({ booking_id: bookingId, user_id: ctx.user!.userId }, cb)
+      );
+      return res?.id ? mapReview(res) : null;
+    },
+
+    myReviews: async (_: unknown, __: unknown, ctx: GatewayContext) => {
+      if (!ctx.user) throw new Error('Unauthorized');
+      const res = await promisify<{ reviews: Array<Record<string, unknown>> }>((cb) =>
+        ctx.bookingClient.ListUserReviews({ user_id: ctx.user!.userId }, cb)
+      );
+      return (res.reviews || []).map(mapReview);
+    },
+
+    tripReviews: async (_: unknown, { tripId, limit }: { tripId: string; limit?: number }, ctx: GatewayContext) => {
+      const res = await promisify<{ reviews: Array<Record<string, unknown>> }>((cb) =>
+        ctx.bookingClient.ListTripReviews({ trip_id: tripId, limit: limit || 20 }, cb)
+      );
+      return (res.reviews || []).map(mapReview).filter((r) => r.id);
+    },
+
+    tripRatingSummary: async (_: unknown, { tripId }: { tripId: string }, ctx: GatewayContext) => {
+      const res = await promisify<Record<string, unknown>>((cb) =>
+        ctx.bookingClient.GetTripRatingSummary({ trip_id: tripId }, cb)
+      );
+      return {
+        tripId: String(res.trip_id || tripId),
+        averageRating: Number(res.average_rating) || 0,
+        reviewCount: Number(res.review_count) || 0,
+      };
+    },
+
+    validateVoucher: async (
+      _: unknown,
+      { bookingId, code, guestEmail }: { bookingId: string; code: string; guestEmail?: string },
+      ctx: GatewayContext
+    ) => {
+      const b = await promisify<Record<string, unknown>>((cb) =>
+        ctx.bookingClient.GetBooking({ booking_id: bookingId }, cb)
+      );
+      if (!b?.id) throw new Error('Không tìm thấy đặt vé');
+      assertPaymentAccessGateway(b, ctx, guestEmail);
+      const res = await promisify<Record<string, unknown>>((cb) =>
+        ctx.bookingClient.ValidateVoucher(
+          {
+            booking_id: bookingId,
+            code: code.trim().toUpperCase(),
+            user_id: ctx.user?.userId,
+            guest_email: guestEmail ? sanitizeEmail(guestEmail) : undefined,
+          },
+          cb
+        )
+      );
+      return mapVoucherValidation(res);
+    },
+
+    availableVouchers: async (_: unknown, { bookingId }: { bookingId: string }, ctx: GatewayContext) => {
+      if (!ctx.user?.userId) return [];
+      const b = await promisify<Record<string, unknown>>((cb) =>
+        ctx.bookingClient.GetBooking({ booking_id: bookingId }, cb)
+      );
+      if (!b?.id) return [];
+      const ownerId = String(b.user_id ?? '').trim();
+      if (ownerId && ownerId !== ctx.user.userId) return [];
+      const res = await promisify<{ vouchers: Array<Record<string, unknown>> }>((cb) =>
+        ctx.bookingClient.ListAvailableVouchers({ booking_id: bookingId, user_id: ctx.user!.userId }, cb)
+      );
+      return (res.vouchers || []).map((v) => ({
+        code: String(v.code || ''),
+        name: String(v.name || ''),
+        description: String(v.description || ''),
+        discountLabel: String(v.discount_label || ''),
+        minOrderValue: Number(v.min_order_value) || 0,
+        maxDiscount: v.max_discount != null ? Number(v.max_discount) : null,
+        validUntil: String(v.valid_until || ''),
+      }));
     },
 
     adminDashboard: async (_: unknown, __: unknown, ctx: GatewayContext) => {
@@ -437,6 +677,24 @@ export const resolvers = {
           revenue: Number(d.revenue) || 0,
           bookingCount: Number(d.booking_count) || 0,
         }));
+
+      const pickDaily = (
+        analyticsDaily: Array<Record<string, unknown>> | undefined,
+        bookingDaily: Array<Record<string, unknown>>,
+        from: string,
+        to: string
+      ) => {
+        const fromAnalytics = mapDaily(analyticsDaily || []);
+        if (fromAnalytics.some((d) => d.revenue > 0 || d.bookingCount > 0)) {
+          return fromAnalytics;
+        }
+        return mapDaily(
+          bookingDaily.filter((d) => {
+            const date = String(d.date);
+            return date >= from && date <= to;
+          })
+        );
+      };
 
       const mapRank = (items: Array<Record<string, unknown>>) =>
         (items || []).map((r) => ({
@@ -465,6 +723,9 @@ export const resolvers = {
         grpcCall<Record<string, unknown>>('auth.customerCount', (cb) => ctx.authClient.CountCustomers({}, cb)),
       ]);
       const insights = insightsRaw;
+      const bookingDaily = (insights?.daily_revenue as Array<Record<string, unknown>>) || [];
+      const bookingTotalRevenue = Number(insights?.total_revenue) || 0;
+      const analyticsTotalRevenue = Number(revAll?.total_revenue) || 0;
 
       if (!revAll && !insights) {
         throw new Error(
@@ -472,9 +733,13 @@ export const resolvers = {
         );
       }
 
-      const recentOrders = ((insights?.recent_orders as Array<Record<string, unknown>>) || []).map((o) => ({
-        ticketCode: String(o.booking_code || ''),
-        bookingCode: String(o.booking_code || ''),
+      const recentOrders = ((insights?.recent_orders as Array<Record<string, unknown>>) || []).map((o) => {
+        const bookingCode = String(o.booking_code || '');
+        const seatId = String(o.seat_id || '');
+        const ticketCode = String(o.ticket_code || o.ticketCode || '') || (seatId ? `${bookingCode}-${seatId}` : bookingCode);
+        return {
+        ticketCode,
+        bookingCode,
         customerName: String(o.customer_name || ''),
         routeName: String(o.route_name || ''),
         origin: String(o.origin || ''),
@@ -483,7 +748,8 @@ export const resolvers = {
         totalAmount: Number(o.total_amount) || 0,
         status: String(o.status || ''),
         createdAt: String(o.created_at || ''),
-      }));
+      };
+      });
 
       const analyticsTopRoutes = ((ticketsByRoute?.routes as Array<Record<string, unknown>>) || [])
         .sort((a, b) => Number(b.tickets_sold) - Number(a.tickets_sold))
@@ -495,9 +761,11 @@ export const resolvers = {
           revenue: Number(r.revenue) || 0,
         }));
 
+      const bookingTopRoutes = mapRank((insights?.top_routes as Array<Record<string, unknown>>) || []);
+
       return {
         stats: {
-          totalRevenue: revAll?.total_revenue || 0,
+          totalRevenue: analyticsTotalRevenue > 0 ? analyticsTotalRevenue : bookingTotalRevenue,
           ticketsSold: Number(insights?.bookings_sold) || 0,
           customers: customers?.count || 0,
           activeTrips: activeTrips?.count || 0,
@@ -505,12 +773,12 @@ export const resolvers = {
           totalSearches: conversion?.total_searches || 0,
           totalBookings: conversion?.total_bookings || 0,
         },
-        revenue7Days: mapDaily((rev7?.daily as Array<Record<string, unknown>>) || []),
-        revenue30Days: mapDaily((rev30?.daily as Array<Record<string, unknown>>) || []),
+        revenue7Days: pickDaily(rev7?.daily as Array<Record<string, unknown>>, bookingDaily, from7, today),
+        revenue30Days: pickDaily(rev30?.daily as Array<Record<string, unknown>>, bookingDaily, from30, today),
         topRoutes:
-          analyticsTopRoutes.length > 0
+          analyticsTopRoutes.some((r) => r.revenue > 0 || r.count > 0)
             ? analyticsTopRoutes
-            : mapRank((insights?.top_routes as Array<Record<string, unknown>>) || []),
+            : bookingTopRoutes,
         topOperators: mapRank((insights?.top_operators as Array<Record<string, unknown>>) || []),
         topCustomers: mapRank((insights?.top_customers as Array<Record<string, unknown>>) || []),
         recentOrders,
@@ -657,7 +925,7 @@ export const resolvers = {
         tripId: string;
         holdToken: string;
         passengers: Array<Record<string, string>>;
-        guestEmail: string;
+        guestEmail?: string;
       },
       ctx: GatewayContext
     ) => {
@@ -666,17 +934,24 @@ export const resolvers = {
         throw new Error(bookable.message);
       }
 
+      let guestEmail = '';
+      try {
+        guestEmail = sanitizeOptionalEmail(args.guestEmail);
+      } catch (err) {
+        throw new Error(err instanceof Error ? err.message : 'Email không hợp lệ');
+      }
+
       const res = await promisify<Record<string, unknown>>((cb) =>
         ctx.bookingClient.CreateBooking(
           {
             trip_id: args.tripId,
             hold_token: args.holdToken,
-            guest_email: args.guestEmail,
+            guest_email: guestEmail,
             user_id: ctx.user?.userId,
             passengers: args.passengers.map((p) => ({
               full_name: p.fullName,
               phone: p.phone,
-              email: p.email,
+              email: p.email ? sanitizeOptionalEmail(p.email) : '',
               id_number: p.idNumber,
               seat_id: p.seatId,
             })),
@@ -701,11 +976,43 @@ export const resolvers = {
 
     processPayment: async (
       _: unknown,
-      { bookingId, simulateSuccess }: { bookingId: string; simulateSuccess: boolean },
+      {
+        bookingId,
+        guestEmail,
+        guestPhone,
+        voucherCode,
+      }: { bookingId: string; guestEmail?: string; guestPhone?: string; voucherCode?: string },
       ctx: GatewayContext
     ) => {
+      const b = await promisify<Record<string, unknown>>((cb) =>
+        ctx.bookingClient.GetBooking({ booking_id: bookingId }, cb)
+      );
+      if (!b?.id) {
+        return { success: false, message: 'Không tìm thấy đặt vé', bookingId: null, bookingCode: null };
+      }
+
+      assertPaymentAccessGateway(b, ctx, guestEmail, guestPhone);
+
+      const tripId = String(b.trip_id ?? '');
+      if (tripId) {
+        const bookable = await assertTripBookable(ctx, tripId);
+        if (!bookable.ok) {
+          return { success: false, message: bookable.message, bookingId: null, bookingCode: null };
+        }
+      }
+
       const result = await promisify<{ success: boolean; message: string }>((cb) =>
-        ctx.bookingClient.ProcessPayment({ booking_id: bookingId, simulate_success: simulateSuccess }, cb)
+        ctx.bookingClient.ProcessPayment(
+          {
+            booking_id: bookingId,
+            simulate_success: process.env.ALLOW_SIMULATE_PAYMENT !== 'false',
+            user_id: ctx.user?.userId,
+            guest_email: guestEmail ? sanitizeEmail(guestEmail) : undefined,
+            guest_phone: guestPhone ? normalizePhoneDigits(guestPhone) : undefined,
+            voucher_code: voucherCode?.trim().toUpperCase() || undefined,
+          },
+          cb
+        )
       );
       if (result.success) {
         logEvent(gatewayLogger, 'payment.success', { requestId: ctx.requestId, userId: ctx.user?.userId, bookingId });
@@ -723,6 +1030,94 @@ export const resolvers = {
         };
       }
       return { success: false, message: result.message, bookingId: null, bookingCode: null };
+    },
+
+    applyVoucher: async (
+      _: unknown,
+      {
+        bookingId,
+        code,
+        guestEmail,
+        guestPhone,
+      }: { bookingId: string; code: string; guestEmail?: string; guestPhone?: string },
+      ctx: GatewayContext
+    ) => {
+      const b = await promisify<Record<string, unknown>>((cb) =>
+        ctx.bookingClient.GetBooking({ booking_id: bookingId }, cb)
+      );
+      if (!b?.id) throw new Error('Không tìm thấy đặt vé');
+      assertPaymentAccessGateway(b, ctx, guestEmail, guestPhone);
+      const res = await promisify<Record<string, unknown>>((cb) =>
+        ctx.bookingClient.ApplyVoucher(
+          {
+            booking_id: bookingId,
+            code: code.trim().toUpperCase(),
+            user_id: ctx.user?.userId,
+            guest_email: guestEmail ? sanitizeEmail(guestEmail) : undefined,
+          },
+          cb
+        )
+      );
+      return mapVoucherValidation(res);
+    },
+
+    removeVoucher: async (
+      _: unknown,
+      {
+        bookingId,
+        guestEmail,
+        guestPhone,
+      }: { bookingId: string; guestEmail?: string; guestPhone?: string },
+      ctx: GatewayContext
+    ) => {
+      const b = await promisify<Record<string, unknown>>((cb) =>
+        ctx.bookingClient.GetBooking({ booking_id: bookingId }, cb)
+      );
+      if (!b?.id) throw new Error('Không tìm thấy đặt vé');
+      assertPaymentAccessGateway(b, ctx, guestEmail, guestPhone);
+      const res = await promisify<Record<string, unknown>>((cb) =>
+        ctx.bookingClient.ApplyVoucher(
+          {
+            booking_id: bookingId,
+            code: '',
+            user_id: ctx.user?.userId,
+            guest_email: guestEmail ? sanitizeEmail(guestEmail) : undefined,
+          },
+          cb
+        )
+      );
+      return mapVoucherValidation(res);
+    },
+
+    submitReview: async (
+      _: unknown,
+      args: { bookingId: string; rating: number; comment: string; reviewerName?: string },
+      ctx: GatewayContext
+    ) => {
+      if (!ctx.user?.userId) throw new Error('Unauthorized — vui lòng đăng nhập để đánh giá');
+
+      const res = await promisify<{
+        success: boolean;
+        message: string;
+        review?: Record<string, unknown>;
+      }>((cb) =>
+        ctx.bookingClient.SubmitReview(
+          {
+            booking_id: args.bookingId,
+            user_id: ctx.user!.userId,
+            reviewer_name: args.reviewerName ? sanitizeString(args.reviewerName, 120) : '',
+            rating: args.rating,
+            comment: sanitizeString(args.comment, 1000),
+          },
+          cb
+        )
+      );
+
+      return {
+        success: res.success,
+        message: res.message,
+        review: res.review?.id ? mapReview(res.review) : null,
+      };
     },
 
     cancelBooking: async (_: unknown, { bookingId }: { bookingId: string }, ctx: GatewayContext) => {
@@ -820,30 +1215,32 @@ export const resolvers = {
 
 function mapTrip(t: Record<string, unknown>, travelDate?: string) {
   const departureTime = String(t.departure_time ?? t.departureTime ?? '');
-  const fromGrpc =
-    t.bookable !== undefined && t.bookable !== null
-      ? {
-          bookable: Boolean(t.bookable),
-          availabilityStatus: String(t.availability_status ?? t.availabilityStatus ?? 'AVAILABLE'),
-          availabilityLabel: String(t.availability_label ?? t.availabilityLabel ?? ''),
-        }
-      : null;
-  const fallback =
+  const arrivalTime = String(t.arrival_time ?? t.arrivalTime ?? '');
+  const dbStatus = String(t.status ?? t.effective_status ?? TRIP_STATUS.ACTIVE);
+
+  const availability =
     travelDate && departureTime
       ? (() => {
           const seatsRaw = t.available_seats ?? t.availableSeats;
           const seats =
             seatsRaw !== undefined && seatsRaw !== null ? Number(seatsRaw) : undefined;
-          const av = getTripAvailability(travelDate, departureTime, new Date(), seats);
+          const av = getTripAvailability(travelDate, departureTime, new Date(), seats, {
+            arrivalTimeIso: arrivalTime,
+            dbStatus,
+          });
           return {
             bookable: av.bookable,
             availabilityStatus: av.availabilityStatus,
             availabilityLabel: av.availabilityLabel,
           };
         })()
-      : { bookable: true, availabilityStatus: 'AVAILABLE', availabilityLabel: '' };
-
-  const availability = fromGrpc ?? fallback;
+      : t.bookable !== undefined && t.bookable !== null
+        ? {
+            bookable: Boolean(t.bookable),
+            availabilityStatus: String(t.availability_status ?? t.availabilityStatus ?? 'AVAILABLE'),
+            availabilityLabel: String(t.availability_label ?? t.availabilityLabel ?? ''),
+          }
+        : { bookable: true, availabilityStatus: 'AVAILABLE', availabilityLabel: '' };
 
   return {
     id: t.id,
@@ -864,6 +1261,30 @@ function mapTrip(t: Record<string, unknown>, travelDate?: string) {
 }
 
 function mapTripDetail(t: Record<string, unknown>) {
+  const departureTime = String(t.departure_time ?? '');
+  const travelDate = departureTime ? departureDateVN(departureTime) : '';
+  const dbStatus = String(t.status ?? t.effective_status ?? TRIP_STATUS.ACTIVE);
+  const av =
+    t.bookable !== undefined && t.bookable !== null
+      ? {
+          bookable: Boolean(t.bookable),
+          availabilityStatus: String(t.availability_status ?? 'AVAILABLE'),
+          availabilityLabel: String(t.availability_label ?? ''),
+        }
+      : travelDate
+        ? (() => {
+            const av = getTripAvailability(travelDate, departureTime, new Date(), Number(t.total_seats ?? 0), {
+              arrivalTimeIso: String(t.arrival_time ?? ''),
+              dbStatus,
+            });
+            return {
+              bookable: av.bookable,
+              availabilityStatus: av.availabilityStatus,
+              availabilityLabel: av.availabilityLabel,
+            };
+          })()
+        : { bookable: true, availabilityStatus: 'AVAILABLE', availabilityLabel: '' };
+
   return {
     id: t.id,
     routeName: t.route_name,
@@ -881,6 +1302,11 @@ function mapTripDetail(t: Record<string, unknown>) {
     busPlate: t.bus_plate,
     totalSeats: t.total_seats,
     seatLayoutJson: t.seat_layout_json,
+    status: dbStatus,
+    bookable: av.bookable,
+    availabilityStatus: av.availabilityStatus,
+    availabilityLabel: av.availabilityLabel,
+    serverNow: t.server_now ?? new Date().toISOString(),
   };
 }
 
@@ -894,23 +1320,102 @@ function assertGuestEmailAccess(b: Record<string, unknown>, email: string) {
   }
 }
 
+function assertGuestPhoneAccess(b: Record<string, unknown>, phone: string) {
+  const phoneNorm = normalizePhoneDigits(phone);
+  const passengerPhones = ((b.passengers as Array<{ phone?: string }>) || []).map((p) =>
+    normalizePhoneDigits(p.phone ?? '')
+  );
+  if (!passengerPhones.includes(phoneNorm)) {
+    throw new Error('Unauthorized — số điện thoại không khớp với đơn đặt vé');
+  }
+}
+
 function assertBookingReadAccess(
   b: Record<string, unknown>,
   ctx: GatewayContext,
-  guestEmail?: string
+  guestEmail?: string,
+  guestPhone?: string
 ) {
+  const ownerId = String(b.user_id ?? '').trim();
+  const storedEmail = String(b.guest_email ?? '').trim().toLowerCase();
+
   if (ctx.user?.userId) {
-    const ownerId = String(b.user_id ?? '').trim();
-    if (ownerId && ownerId !== ctx.user.userId) {
-      throw new Error('Forbidden — bạn không có quyền xem đặt vé này');
+    if (ownerId) {
+      if (ownerId !== ctx.user.userId) {
+        throw new Error('Forbidden — bạn không có quyền xem đặt vé này');
+      }
+      return;
     }
-    return;
+    if (guestEmail) {
+      assertGuestEmailAccess(b, guestEmail);
+      return;
+    }
+    if (guestPhone) {
+      assertGuestPhoneAccess(b, guestPhone);
+      return;
+    }
+    if (storedEmail) {
+      throw new Error('Forbidden — vui lòng cung cấp email đặt vé để xác minh');
+    }
+    throw new Error('Forbidden — vui lòng cung cấp số điện thoại đặt vé để xác minh');
   }
+
   if (guestEmail) {
     assertGuestEmailAccess(b, guestEmail);
     return;
   }
-  throw new Error('Unauthorized — vui lòng đăng nhập hoặc cung cấp email đặt vé');
+  if (guestPhone) {
+    assertGuestPhoneAccess(b, guestPhone);
+    return;
+  }
+
+  throw new Error('Unauthorized — vui lòng đăng nhập hoặc cung cấp email/số điện thoại đặt vé');
+}
+
+function assertPaymentAccessGateway(
+  b: Record<string, unknown>,
+  ctx: GatewayContext,
+  guestEmail?: string,
+  guestPhone?: string
+) {
+  const ownerId = String(b.user_id ?? '').trim();
+  const storedEmail = String(b.guest_email ?? '').trim().toLowerCase();
+  const email = guestEmail?.trim() ? sanitizeEmail(guestEmail) : undefined;
+  const phone = guestPhone?.trim() ? normalizePhoneDigits(guestPhone) : undefined;
+
+  if (ctx.user?.userId) {
+    if (ownerId) {
+      if (ownerId !== ctx.user.userId) {
+        throw new Error('Forbidden — bạn không có quyền thanh toán đặt vé này');
+      }
+      return;
+    }
+    if (storedEmail) {
+      if (!email) {
+        throw new Error('Forbidden — cần email xác minh cho đơn khách vãng lai');
+      }
+      assertGuestEmailAccess(b, email);
+      return;
+    }
+    if (!phone) {
+      throw new Error('Forbidden — cần số điện thoại xác minh cho đơn khách vãng lai');
+    }
+    assertGuestPhoneAccess(b, phone);
+    return;
+  }
+
+  if (storedEmail) {
+    if (!email) {
+      throw new Error('Unauthorized — vui lòng cung cấp email đặt vé');
+    }
+    assertGuestEmailAccess(b, email);
+    return;
+  }
+
+  if (!phone) {
+    throw new Error('Unauthorized — vui lòng cung cấp số điện thoại đặt vé');
+  }
+  assertGuestPhoneAccess(b, phone);
 }
 
 function mapBooking(b: Record<string, unknown>) {
@@ -920,6 +1425,12 @@ function mapBooking(b: Record<string, unknown>) {
     status: b.status,
     tripId: b.trip_id,
     totalAmount: b.total_amount,
+    ticketSubtotal: b.ticket_subtotal ?? null,
+    serviceFee: b.service_fee ?? null,
+    discountAmount: b.discount_amount ?? 0,
+    voucherCode: b.voucher_code ? String(b.voucher_code) : null,
+    voucherName: null,
+    finalAmount: b.final_amount ?? b.total_amount,
     routeName: b.route_name,
     origin: b.origin,
     destination: b.destination,
@@ -965,6 +1476,12 @@ function bookingToETickets(b: Record<string, unknown>) {
   const bookingStatus = String(b.status ?? '');
   const departureTime = resolveDepartureTime(b);
 
+  const bookingTotal = Number(b.final_amount ?? b.total_amount ?? 0);
+  const ticketSubtotal = b.ticket_subtotal != null ? Number(b.ticket_subtotal) : null;
+  const serviceFee = b.service_fee != null ? Number(b.service_fee) : null;
+  const discountAmount = Number(b.discount_amount ?? 0);
+  const voucherCode = b.voucher_code ? String(b.voucher_code) : null;
+
   return passengers.map((p) => {
     const seatId = String(p.seat_id ?? '');
     const ticketCode = passengers.length === 1 ? bookingCode : `${bookingCode}-${seatId}`;
@@ -994,6 +1511,11 @@ function bookingToETickets(b: Record<string, unknown>) {
       departureTime,
       busPlate: String(b.bus_plate ?? ''),
       totalAmount: perSeat,
+      ticketSubtotal,
+      serviceFee,
+      discountAmount,
+      voucherCode,
+      finalAmount: bookingTotal,
       paymentStatus,
       bookingStatus,
       qrCode,
@@ -1034,6 +1556,19 @@ function matchesBookingSearch(b: Record<string, unknown>, q: string): boolean {
   );
 }
 
+function mapVoucherValidation(res: Record<string, unknown>) {
+  return {
+    valid: !!res.valid,
+    message: String(res.message || ''),
+    discountAmount: Number(res.discount_amount) || 0,
+    ticketSubtotal: Number(res.ticket_subtotal) || 0,
+    serviceFee: Number(res.service_fee) || 0,
+    finalAmount: Number(res.final_amount) || 0,
+    voucherCode: res.voucher_code ? String(res.voucher_code) : null,
+    voucherName: res.voucher_name ? String(res.voucher_name) : null,
+  };
+}
+
 function mapETicket(t: Record<string, unknown>) {
   return {
     id: t.id,
@@ -1054,9 +1589,35 @@ function mapETicket(t: Record<string, unknown>) {
     departureTime: t.departure_time,
     busPlate: t.bus_plate,
     totalAmount: t.total_amount,
+    ticketSubtotal: t.ticket_subtotal ?? null,
+    serviceFee: t.service_fee ?? null,
+    discountAmount: t.discount_amount ?? 0,
+    voucherCode: t.voucher_code ? String(t.voucher_code) : null,
+    finalAmount: t.final_amount ?? t.total_amount,
     paymentStatus: t.payment_status,
     bookingStatus: t.booking_status,
     qrCode: t.qr_code,
     createdAt: t.created_at,
+  };
+}
+
+function mapReview(r: Record<string, unknown>) {
+  const origin = String(r.origin || '');
+  const destination = String(r.destination || '');
+  const routeName = String(r.route_name || '');
+  const routeLabel =
+    origin && destination ? `${origin} → ${destination}` : routeName || 'Tuyến xe';
+
+  return {
+    id: String(r.id || ''),
+    bookingId: String(r.booking_id || ''),
+    userId: String(r.user_id || ''),
+    tripId: String(r.trip_id || ''),
+    reviewerName: String(r.reviewer_name || 'Khách hàng'),
+    routeName,
+    routeLabel,
+    rating: Number(r.rating) || 0,
+    comment: String(r.comment || ''),
+    createdAt: String(r.created_at || ''),
   };
 }

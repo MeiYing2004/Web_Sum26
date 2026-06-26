@@ -326,7 +326,10 @@ app.get('/health', async (_req, res) => {
   res.json(body);
 });
 
-const server = app.listen(PORT, () => console.log(`AI Service on :${PORT}`));
+const HOST = process.env.HOST || '0.0.0.0';
+const server = app.listen(Number(PORT), HOST, () =>
+  console.log(`AI Service on ${HOST}:${PORT}`)
+);
 
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {

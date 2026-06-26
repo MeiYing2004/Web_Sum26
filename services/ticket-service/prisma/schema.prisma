@@ -27,6 +27,11 @@ model Ticket {
   departureTime   String
   busPlate        String   @default("")
   totalAmount     Float    @default(0)
+  ticketSubtotal  Float    @default(0)
+  serviceFee      Float    @default(0)
+  discountAmount  Float    @default(0)
+  voucherCode     String   @default("")
+  finalAmount     Float    @default(0)
   paymentStatus   String   @default("PAID")
   bookingStatus   String   @default("TICKET_ISSUED")
   qrCode          String

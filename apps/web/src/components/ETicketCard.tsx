@@ -18,10 +18,13 @@ import {
   Printer,
   RotateCcw,
   ShieldCheck,
+  Tag,
   Ticket,
   User,
 } from 'lucide-react';
 import { CancelBookingButton } from '@/components/domain/CancelBookingButton';
+import { BookingReviewActions } from '@/components/domain/BookingReviewActions';
+import type { Review } from '@/lib/reviews';
 import { TicketQRCode } from '@/components/TicketQRCode';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -43,10 +46,12 @@ type Props = {
   isDetailView?: boolean;
   allowCancel?: boolean;
   onCancelled?: () => void;
+  review?: Review | null;
+  onReviewSubmitted?: (review: Review) => void;
 };
 
 export const ETicketCard = forwardRef<HTMLElement, Props>(function ETicketCard(
-  { ticket, showActions = true, compact = false, isDetailView = false, allowCancel = false, onCancelled },
+  { ticket, showActions = true, compact = false, isDetailView = false, allowCancel = false, onCancelled, review, onReviewSubmitted },
   ref
 ) {
   const { user } = useAuth();
@@ -67,6 +72,8 @@ export const ETicketCard = forwardRef<HTMLElement, Props>(function ETicketCard(
     now
   );
   const ticketValid = isTicketValid(ticket);
+  const paidAmount = ticket.finalAmount ?? ticket.totalAmount;
+  const hasVoucher = (ticket.discountAmount ?? 0) > 0 || !!ticket.voucherCode;
   const rebookUrl = buildTripsSearchUrl(
     ticket.origin,
     ticket.destination,
@@ -224,18 +231,40 @@ export const ETicketCard = forwardRef<HTMLElement, Props>(function ETicketCard(
                 </div>
               </div>
 
-              {/* Info grid */}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {/* Info grid — Ngày đi / Giờ đi / Ghế / Tổng tiền */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <InfoChip icon={Calendar} label="Ngày đi" value={date} />
                 <InfoChip icon={Clock} label="Giờ đi" value={time} />
                 <InfoChip icon={Armchair} label="Ghế" value={ticket.seatId} />
                 <InfoChip
                   icon={Banknote}
                   label="Tổng tiền"
-                  value={`${Math.round(ticket.totalAmount).toLocaleString('vi-VN')}đ`}
+                  value={`${Math.round(paidAmount).toLocaleString('vi-VN')}đ`}
                   highlight
                 />
               </div>
+
+              {hasVoucher && (
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-sm">
+                  <p className="flex items-center gap-1.5 font-semibold text-emerald-800">
+                    <Tag className="h-4 w-4" />
+                    Voucher đã áp dụng
+                  </p>
+                  <div className="mt-2 space-y-1 text-caption text-emerald-900/90">
+                    {ticket.voucherCode ? (
+                      <p>
+                        Mã: <span className="font-mono font-bold">{ticket.voucherCode}</span>
+                      </p>
+                    ) : null}
+                    {(ticket.discountAmount ?? 0) > 0 ? (
+                      <p>Giảm: -{Math.round(ticket.discountAmount!).toLocaleString('vi-VN')}đ</p>
+                    ) : null}
+                    <p className="font-semibold">
+                      Tổng thanh toán: {Math.round(paidAmount).toLocaleString('vi-VN')}đ
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Status badges */}
               <div className="flex flex-wrap gap-2">
@@ -315,6 +344,13 @@ export const ETicketCard = forwardRef<HTMLElement, Props>(function ETicketCard(
               <RotateCcw className="h-4 w-4" />
               Đặt lại chuyến
             </Link>
+            {onReviewSubmitted ? (
+              <BookingReviewActions
+                ticket={ticket}
+                review={review}
+                onReviewSubmitted={onReviewSubmitted}
+              />
+            ) : null}
             {allowCancel ? (
               <CancelBookingButton
                 ticket={ticket}
@@ -342,18 +378,18 @@ function InfoChip({
 }) {
   return (
     <div
-      className={`rounded-2xl border px-3.5 py-3 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md ${
-        highlight
-          ? 'border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-violet-50/50 ring-1 ring-indigo-100/60'
-          : 'border-slate-100/80 bg-white/80 ring-1 ring-slate-100/50 hover:border-indigo-100'
-      }`}
+      className="flex h-full min-h-[5.5rem] flex-col justify-between rounded-xl border border-slate-100/80 bg-white/80 p-3.5 ring-1 ring-slate-100/50 transition-shadow duration-200 hover:shadow-sm sm:min-h-[5.75rem] sm:p-4"
     >
-      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-        <Icon className={`h-3 w-3 ${highlight ? 'text-indigo-500' : 'text-slate-400'}`} />
-        {label}
+      <p className="flex min-h-[2rem] items-start gap-1.5 text-[10px] font-semibold uppercase leading-snug tracking-wide text-slate-400">
+        <Icon
+          className={`mt-0.5 h-3 w-3 shrink-0 ${highlight ? 'text-brand-500' : 'text-slate-400'}`}
+        />
+        <span className="line-clamp-2">{label}</span>
       </p>
       <p
-        className={`mt-1 text-sm font-bold ${highlight ? 'text-indigo-700' : 'text-[#0F172A]'}`}
+        className={`mt-2 text-sm font-bold leading-tight tabular-nums ${
+          highlight ? 'text-brand-700' : 'text-[#0F172A]'
+        }`}
       >
         {value}
       </p>

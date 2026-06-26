@@ -68,6 +68,14 @@ export function startHealthServer(opts: HealthOptions): http.Server {
     res.end(JSON.stringify(body));
   });
 
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[health] ${opts.service} port ${port} đã dùng — bỏ qua health HTTP`);
+      return;
+    }
+    console.error(`[health] ${opts.service} failed:`, err.message);
+  });
+
   server.listen(port, () => {
     console.log(`[health] ${opts.service} → :${port}/health`);
   });

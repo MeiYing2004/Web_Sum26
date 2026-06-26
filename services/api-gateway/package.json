@@ -1,31 +1,32 @@
 {
-  "name": "@bus/api-gateway",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "build": "tsc && node -e \"require('fs').copyFileSync('src/schema.graphql','dist/schema.graphql')\"",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js"
-  },
-  "dependencies": {
-    "@apollo/server": "^4.11.3",
-    "@bus/proto": "*",
-    "@bus/shared": "*",
-    "@graphql-tools/schema": "^10.0.21",
-    "@grpc/grpc-js": "^1.12.6",
-    "cors": "^2.8.5",
-    "express": "^4.21.2",
-    "graphql": "^16.10.0",
-    "graphql-subscriptions": "^3.0.0",
-    "graphql-ws": "^6.0.4",
-    "ws": "^8.18.1"
-  },
-  "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.0",
-    "@types/node": "^22.13.10",
-    "@types/ws": "^8.5.14",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
-  }
+    "name":  "@bus/api-gateway",
+    "version":  "1.0.0",
+    "private":  true,
+    "scripts":  {
+                    "build":  "tsc \u0026\u0026 node -e \"require(\u0027fs\u0027).copyFileSync(\u0027src/schema.graphql\u0027,\u0027dist/schema.graphql\u0027)\"",
+                    "dev":  "tsx watch src/index.ts",
+                    "start":  "node dist/index.js",
+                    "typecheck":  "tsc --noEmit"
+                },
+    "dependencies":  {
+                         "@apollo/server":  "^4.11.3",
+                         "@bus/proto":  "*",
+                         "@bus/shared":  "*",
+                         "@graphql-tools/schema":  "^10.0.21",
+                         "@grpc/grpc-js":  "^1.12.6",
+                         "cors":  "^2.8.5",
+                         "express":  "^4.21.2",
+                         "graphql":  "^16.10.0",
+                         "graphql-subscriptions":  "^3.0.0",
+                         "graphql-ws":  "^6.0.4",
+                         "ws":  "^8.18.1"
+                     },
+    "devDependencies":  {
+                            "@types/cors":  "^2.8.17",
+                            "@types/express":  "^5.0.0",
+                            "@types/node":  "^22.13.10",
+                            "@types/ws":  "^8.5.14",
+                            "tsx":  "^4.19.3",
+                            "typescript":  "^5.8.2"
+                        }
 }

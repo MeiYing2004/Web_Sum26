@@ -1,26 +1,28 @@
 {
-  "name": "@bus/booking-service",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "build": "prisma generate && tsc",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
-    "db:migrate": "prisma migrate deploy"
-  },
-  "dependencies": {
-    "@bus/proto": "*",
-    "@bus/shared": "*",
-    "@grpc/grpc-js": "^1.12.6",
-    "@prisma/client": "^6.5.0",
-    "ioredis": "^5.6.0",
-    "uuid": "^11.1.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.13.10",
-    "@types/uuid": "^10.0.0",
-    "prisma": "^6.5.0",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
-  }
+    "name":  "@bus/booking-service",
+    "version":  "1.0.0",
+    "private":  true,
+    "scripts":  {
+                    "build":  "prisma generate && tsc && node -e \"require('fs').cpSync('src/generated','dist/generated',{recursive:true})\"",
+                    "dev":  "tsx watch src/index.ts",
+                    "start":  "node dist/index.js",
+                    "db:migrate":  "prisma migrate deploy",
+                    "postinstall":  "prisma generate",
+                    "typecheck":  "prisma generate && tsc --noEmit"
+                },
+    "dependencies":  {
+                         "@bus/proto":  "*",
+                         "@bus/shared":  "*",
+                         "@grpc/grpc-js":  "^1.12.6",
+                         "@prisma/client":  "^6.5.0",
+                         "ioredis":  "^5.6.0",
+                         "uuid":  "^11.1.0"
+                     },
+    "devDependencies":  {
+                            "@types/node":  "^22.13.10",
+                            "@types/uuid":  "^10.0.0",
+                            "prisma":  "^6.5.0",
+                            "tsx":  "^4.19.3",
+                            "typescript":  "^5.8.2"
+                        }
 }

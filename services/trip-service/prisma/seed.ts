@@ -1,4 +1,4 @@
-import { PrismaClient, TripStatus } from '@prisma/client';
+import { PrismaClient, TripStatus } from '../src/generated/client';
 
 import { DEFAULT_LAYOUTS, todayVN, addDaysVN } from '@bus/shared';
 

@@ -14,6 +14,7 @@ export interface TripSearchBoxProps {
   originSuggestions: Array<{ name: string }>;
   destSuggestions: Array<{ name: string }>;
   catalogLocations?: string[];
+  destCatalogLocations?: string[];
   loading?: boolean;
   onOriginChange: (v: string) => void;
   onDestChange: (v: string) => void;
@@ -33,6 +34,7 @@ export function TripSearchBox({
   originSuggestions,
   destSuggestions,
   catalogLocations = [],
+  destCatalogLocations,
   loading,
   onOriginChange,
   onDestChange,
@@ -48,11 +50,25 @@ export function TripSearchBox({
   const [openField, setOpenField] = useState<'origin' | 'destination' | null>(null);
 
   return (
-    <div className={cn(isHero ? 'search-box-premium' : 'rounded-xl border border-slate-200/80 bg-white p-4 shadow-card', className)}>
-      <div className={cn('grid gap-2', isHero ? 'sm:grid-cols-[1fr_auto_1fr_auto_auto]' : 'sm:grid-cols-2 lg:grid-cols-[1fr_auto_1fr_auto_auto]')}>
+    <div
+      className={cn(
+        isHero
+          ? 'search-box-premium'
+          : 'rounded-xl border border-border bg-white p-4 shadow-card',
+        className
+      )}
+    >
+      <div
+        className={cn(
+          'grid gap-3',
+          isHero ? 'sm:grid-cols-[1fr_auto_1fr_auto_auto]' : 'sm:grid-cols-2 lg:grid-cols-[1fr_auto_1fr_auto_auto]'
+        )}
+      >
         <div className="relative">
-          <label className="mb-1.5 flex items-center gap-1.5 text-micro font-semibold uppercase tracking-wide text-ink-subtle">
-            <MapPin className="h-3 w-3 text-brand" />
+          <label className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-ink-subtle">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-50 text-brand">
+              <MapPin className="h-4 w-4" />
+            </span>
             Điểm đi
           </label>
           <LocationField
@@ -77,7 +93,7 @@ export function TripSearchBox({
                 onSwap?.();
               }}
               aria-label="Đổi chiều"
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-surface-sunken text-ink-muted transition-all hover:border-brand/30 hover:bg-brand-50 hover:text-brand"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-surface text-ink-muted transition-all hover:border-brand/30 hover:bg-brand-50 hover:text-brand hover:shadow-sm"
             >
               <ArrowLeftRight className="h-4 w-4" />
             </button>
@@ -85,15 +101,17 @@ export function TripSearchBox({
         )}
 
         <div className="relative">
-          <label className="mb-1.5 flex items-center gap-1.5 text-micro font-semibold uppercase tracking-wide text-ink-subtle">
-            <MapPin className="h-3 w-3 text-accent" />
+          <label className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-ink-subtle">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent/10 text-accent">
+              <MapPin className="h-4 w-4" />
+            </span>
             Điểm đến
           </label>
           <LocationField
             value={destQuery}
             onChange={onDestChange}
             suggestions={destSuggestions}
-            catalogLocations={catalogLocations}
+            catalogLocations={destCatalogLocations ?? catalogLocations}
             onPick={onDestPick}
             placeholder="Nơi đến"
             icon="destination"
@@ -103,15 +121,17 @@ export function TripSearchBox({
         </div>
 
         <div>
-          <label className="mb-1.5 flex items-center gap-1.5 text-micro font-semibold uppercase tracking-wide text-ink-subtle">
-            <Calendar className="h-3 w-3 text-brand" />
+          <label className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-ink-subtle">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-50 text-brand">
+              <Calendar className="h-4 w-4" />
+            </span>
             Ngày đi
           </label>
           <Input
             type="date"
             value={travelDate}
             onChange={(e) => onDateChange(e.target.value)}
-            className="h-11"
+            className="h-12"
           />
         </div>
 
@@ -121,7 +141,10 @@ export function TripSearchBox({
             onClick={onSearch}
             disabled={loading}
             size="lg"
-            className={cn('h-11 w-full', isHero && 'bg-gradient-to-r from-brand-600 to-brand-700 shadow-elevated')}
+            className={cn(
+              'btn-ripple h-12 w-full text-base font-semibold',
+              isHero && 'bg-gradient-to-r from-brand-600 to-brand-500 shadow-search hover:shadow-search-hover'
+            )}
           >
             {loading ? (
               <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />

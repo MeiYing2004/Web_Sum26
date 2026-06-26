@@ -2,14 +2,14 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BadgePercent, ChevronDown, Filter, SlidersHorizontal, X } from 'lucide-react';
+import { BadgePercent, ChevronDown, Filter, SlidersHorizontal, X, Bus } from 'lucide-react';
 import { gql } from '@/lib/graphql';
 import { useDebounce } from '@/hooks/useDebounce';
 import { formatDisplayDate, todayVN } from '@/lib/datetime';
 import { useTravelDateWithTodaySync } from '@/hooks/useTodayVN';
 import { parseTripsSearchParams, buildTripsSeoUrl, buildTripsSearchUrl, TRIP_OPERATORS, TRIP_BUS_TYPES } from '@/lib/trip-search';
 import { normalizeSearchTrips, TRIP_SEARCH_FIELDS, type TripSearchResult } from '@/lib/trip-availability';
-import { fetchRouteCatalog, filterLocationSuggestions } from '@/lib/route-catalog';
+import { fetchRouteCatalog, filterLocationSuggestions, destinationsForOrigin, originsForDestination, type RouteCatalog, EMPTY_ROUTE_CATALOG } from '@/lib/route-catalog';
 import { TripResultCard } from '@/components/domain/TripResultCard';
 import { TripSearchBox } from '@/components/domain/TripSearchBox';
 import { BookingProgress } from '@/components/domain/BookingProgress';
@@ -17,7 +17,8 @@ import { Card } from '@/components/ui/Card';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { Field } from '@/components/ui/Field';
-import { SkeletonCard } from '@/components/ui/Skeleton';
+import { SkeletonCard, SkeletonTripCard } from '@/components/ui/Skeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { cn } from '@/lib/cn';
 
 type Trip = TripSearchResult & {
@@ -68,7 +69,7 @@ function TripsSearchContent() {
   const [error, setError] = useState<string | null>(null);
   const [originSuggestions, setOriginSuggestions] = useState<Array<{ name: string }>>([]);
   const [destSuggestions, setDestSuggestions] = useState<Array<{ name: string }>>([]);
-  const [catalogLocations, setCatalogLocations] = useState<string[]>([]);
+  const [catalog, setCatalog] = useState<RouteCatalog>(EMPTY_ROUTE_CATALOG);
   const [activePromoCode, setActivePromoCode] = useState(promoFromQuery || '');
   const [nearestDate, setNearestDate] = useState<string | null>(null);
   const reqId = useRef(0);
@@ -92,24 +93,32 @@ function TripsSearchContent() {
     setTravelDate(parsed.date);
   }, [parsed]);
 
-  useEffect(() => {
-    setOriginSuggestions(filterLocationSuggestions(catalogLocations, debouncedOrigin));
-  }, [catalogLocations, debouncedOrigin]);
+  const originOptions = useMemo(
+    () => (destination ? originsForDestination(catalog, destination) : catalog.origins),
+    [catalog, destination]
+  );
+  const destOptions = useMemo(
+    () => (origin ? destinationsForOrigin(catalog, origin) : catalog.destinations),
+    [catalog, origin]
+  );
 
   useEffect(() => {
-    setDestSuggestions(filterLocationSuggestions(catalogLocations, debouncedDest));
-  }, [catalogLocations, debouncedDest]);
+    setOriginSuggestions(filterLocationSuggestions(originOptions, debouncedOrigin));
+  }, [originOptions, debouncedOrigin]);
+
+  useEffect(() => {
+    setDestSuggestions(filterLocationSuggestions(destOptions, debouncedDest));
+  }, [destOptions, debouncedDest]);
 
   useEffect(() => {
     const id = ++reqId.current;
     fetchRouteCatalog(travelDate, 50)
-      .then((catalog) => {
+      .then((nextCatalog) => {
         if (id !== reqId.current) return;
-        setCatalogLocations(catalog.locations);
-        if (!catalog.routes.length) return;
-        const hasCurrentRoute = catalog.routes.some((r) => r.origin === origin && r.destination === destination);
-        if (!hasCurrentRoute && catalog.routes[0]) {
-          const first = catalog.routes[0];
+        setCatalog(nextCatalog);
+        if (!nextCatalog.routePairs.length) return;
+        if (!origin && !destination && nextCatalog.routePairs[0]) {
+          const first = nextCatalog.routePairs[0];
           setOrigin(first.origin);
           setOriginQuery(first.origin);
           setDestination(first.destination);
@@ -117,9 +126,9 @@ function TripsSearchContent() {
         }
       })
       .catch(() => {
-        if (id === reqId.current) setCatalogLocations([]);
+        if (id === reqId.current) setCatalog(EMPTY_ROUTE_CATALOG);
       });
-  }, [travelDate, origin, destination]);
+  }, [travelDate]);
 
   const activeFilterCount = useMemo(
     () =>
@@ -241,7 +250,8 @@ function TripsSearchContent() {
             travelDate={travelDate}
             originSuggestions={originSuggestions}
             destSuggestions={destSuggestions}
-            catalogLocations={catalogLocations}
+            catalogLocations={originOptions}
+            destCatalogLocations={destOptions}
             loading={loading}
             onOriginChange={(v) => {
               setOriginQuery(v);
@@ -490,15 +500,19 @@ function TripsSearchContent() {
         {loading && (
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
-              <SkeletonCard key={i} />
+              <SkeletonTripCard key={i} />
             ))}
           </div>
         )}
 
         {!loading && trips.length === 0 && !error && parsed && (
-          <Card variant="dashed" padding="lg" className="text-center">
-            <p className="text-body text-ink-muted">Chưa có kết quả — thử đổi ngày hoặc tuyến.</p>
-          </Card>
+          <EmptyState
+            icon={Bus}
+            title="Không có chuyến xe"
+            description="Chưa có kết quả — thử đổi ngày hoặc tuyến."
+            actionLabel="Tìm chuyến khác"
+            actionHref="/"
+          />
         )}
 
         <div className="space-y-4">
@@ -536,7 +550,7 @@ export default function TripsPage() {
         <div className="mesh-bg page-section page-container">
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
-              <SkeletonCard key={i} />
+              <SkeletonTripCard key={i} />
             ))}
           </div>
         </div>
